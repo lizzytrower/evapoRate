@@ -1,0 +1,1702 @@
+---
+title: "Getting Started with evapoRate"
+author: Lizzy Trower
+format: html
+embed-resources: true
+editor: visual
+theme: flatly
+toc: true
+bibliography: references.bib
+---
+
+# Background
+
+evapoRate is an R package designed to simulate changes in aqueous chemistry driven by evaporation. This first release of evapoRate can additionally include the effects of CO~2~ gas exchange, CaCO~3~ precipitation, and the effects on evaporation + CO~2~ gas exchange on carbon isotope values of dissolved inorganic carbon (DIC). evapoRate can not yet simulate the precipitation of other evaporite minerals, but we plan to include those in future model versions. This document walks through some of the key functionalities of evapoRate.
+
+At its core, evapoRate uses the PHREEQC R package to do solution chemistry and reaction calculations [@phreeqc].
+
+# Setup
+
+## Load libraries
+
+```{r load-libraries}
+suppressWarnings({
+  library(evapoRate)
+  library(phreeqc)
+  library(tidyverse)
+  library(readxl)
+  library(LaCroixColoR)
+})
+```
+
+## Load data
+
+We'll use three datasets to demonstrate how the model works here: one dataset of major ion concentrations for a set of indoor experiments in which we let seawater evaporate, and two datasets that represent replicates of a similar indoor evaporation experiment for waters from the Jordan River in Utah. The seawater dataset includes 𝛿^13^C~DIC~ data; the Jordan River datasets do not. The Jordan River datasets capture CaCO~3~ precipitation events in higher resolution than the seawater dataset.
+
+```{r load-data}
+SWdata <- read_excel("SW_alldata.xlsx")
+JR1data <- read_excel("JR1_alldata.xlsx")
+JR2data <- read_excel("JR2_alldata.xlsx")
+```
+
+## Data carbonate chemistry calculations
+
+The raw datasets do not include carbonate chemistry calculations, so we do those here to generate a more complete comparison dataset that we'll use to benchmark the model.
+
+```{r PHREEQC-data-carb-calcs}
+phrLoadDatabaseString(pitzer.dat) 
+phrSetOutputStringsOn(TRUE)  
+
+tempC <- 20
+P_atm_Boulder <- 0.82 #{atm}
+
+suppressWarnings({
+  for (n in 1:length(SWdata$Datetime)) {
+    if (is.na(SWdata$undiluted_Alk_mmol_kg[n]) == TRUE) {
+      SWdata$Omega_ar[n] <- NA
+      SWdata$Omega_cc[n] <- NA
+      SWdata$Omega_mhc[n] <- NA
+      SWdata$Omega_dol[n] <- NA
+      SWdata$Omega_mag[n] <- NA
+      SWdata$Omega_hmag[n] <- NA
+      SWdata$Omega_gy[n] <- NA
+      SWdata$DIC_mmol_kg[n] <- NA
+      SWdata$pCO2[n] <- NA
+      SWdata$wateractivity[n] <- NA
+      SWdata$CO2_mol_kg[n] <- NA
+      SWdata$salinity[n] <- NA
+    } else if (is.na(SWdata$undiluted_Alk_mmol_kg[n]) == FALSE) {
+      input1 <- c(
+        ' PHASES',
+        ' Hydromagnesite',
+        '      Mg5(CO3)4(OH)2:4H2O +6.0000 H+  =  + 4.0000 HCO3- + 5.0000 Mg++ + 6.0000 H2O',
+        '      log_k           30.8539',
+        ' -delta_H	-289.696	kJ/mol',	# Calculated enthalpy of reaction
+        ' Monohydrocalcite',
+        '    CaCO3:H2O +1.0000 H+  =  + 1.0000 Ca++ + 1.0000 H2O + 1.0000 HCO3-',
+        '      log_k           2.6824',
+        ' -delta_H	-20.5648	kJ/mol',	# Calculated enthalpy of reaction
+        
+        '  SOLUTION 1 seawater',
+        '  units         mmol/kgw',
+        paste('  temp              ',as.character(tempC)),
+        paste('  pressure          ',as.character(P_atm_Boulder)),
+        paste('  Alkalinity        ',as.character(SWdata$undiluted_Alk_mmol_kg[n])),     
+        paste('  pH              ',as.character(SWdata$pH_mean[n])),     
+        paste('  Ca                ',as.character(SWdata$Ca_mmol_kg[n])),     
+        paste('  Mg                ',as.character(SWdata$Mg_mmol_kg[n])),     
+        paste('  Na                ',as.character(SWdata$Na_mmol_kg[n])),     
+        paste('  K                 ',as.character(SWdata$K_mmol_kg[n])),
+        paste('  Li                ',as.character(SWdata$Li_mmol_kg[n])),
+        paste('  Cl                ',as.character(SWdata$Cl_mmol_kg[n])),     
+        paste('  S(6)              ',as.character(SWdata$SO4_mmol_kg[n])),      
+        'SELECTED_OUTPUT       ',
+        '  -high precision   TRUE',
+        '  -totals           C(4) Na Ca Mg K Cl S(6) Li',
+        '  -molalities       CO2',
+        '  -si               aragonite calcite dolomite magnesite monohydrocalcite hydromagnesite gypsum CO2(g)',
+        '  -activities       H2O')  
+      phrRunString(input1) 
+      output1 <- phrGetSelectedOutput() 
+      SWdata$Omega_ar[n] <- 10^output1$n1$si_aragonite
+      SWdata$Omega_cc[n] <- 10^output1$n1$si_calcite
+      SWdata$Omega_mhc[n] <- 10^output1$n1$si_monohydrocalcite
+      SWdata$Omega_dol[n] <- 10^output1$n1$si_dolomite
+      SWdata$Omega_mag[n] <- 10^output1$n1$si_magnesite
+      SWdata$Omega_hmag[n] <- 10^output1$n1$si_hydromagnesite
+      SWdata$Omega_gy[n] <- 10^output1$n1$si_gypsum
+      SWdata$DIC_mmol_kg[n] <- output1$n1$C.4..mol.kgw.*1000 
+      SWdata$pCO2[n] <- 10^output1$n1$si_CO2.g.*10^6
+      SWdata$wateractivity[n] <- 10^output1$n1$la_H2O
+      SWdata$CO2_mol_kg[n] <- output1$n1$m_CO2.mol.kgw.
+      SWdata$salinity[n] <- output1$n1$Na.mol.kgw.*22.989769 + output1$n1$Ca.mol.kgw.*40.078 + output1$n1$Mg.mol.kgw.*24.305 + output1$n1$K.mol.kgw.*39.0983 + output1$n1$Cl.mol.kgw.*35.453 + output1$n1$S.6..mol.kgw.*96.06 + output1$n1$C.4..mol.kgw.*61.0168
+    }
+  }
+  
+  for (n in 1:length(JR1data$Datetime)) {
+    if (is.na(JR1data$undiluted_Alk_mmol_kg[n]) == TRUE) {
+      JR1data$Omega_ar[n] <- NA
+      JR1data$Omega_cc[n] <- NA
+      JR1data$Omega_mhc[n] <- NA
+      JR1data$Omega_dol[n] <- NA
+      JR1data$Omega_mag[n] <- NA
+      JR1data$Omega_hmag[n] <- NA
+      JR1data$Omega_gy[n] <- NA
+      JR1data$DIC_mmol_kg[n] <- NA
+      JR1data$pCO2[n] <- NA
+      JR1data$wateractivity[n] <- NA
+      JR1data$CO2_mol_kg[n] <- NA
+      JR1data$salinity[n] <- NA
+    } else if (is.na(JR1data$undiluted_Alk_mmol_kg[n]) == FALSE) {
+      input1 <- c(
+        ' PHASES',
+        ' Hydromagnesite',
+        '      Mg5(CO3)4(OH)2:4H2O +6.0000 H+  =  + 4.0000 HCO3- + 5.0000 Mg++ + 6.0000 H2O',
+        '      log_k           30.8539',
+        ' -delta_H	-289.696	kJ/mol',	# Calculated enthalpy of reaction
+        ' Monohydrocalcite',
+        '    CaCO3:H2O +1.0000 H+  =  + 1.0000 Ca++ + 1.0000 H2O + 1.0000 HCO3-',
+        '      log_k           2.6824',
+        ' -delta_H	-20.5648	kJ/mol',	# Calculated enthalpy of reaction
+        
+        '  SOLUTION 1 river water',
+        '  units         mmol/kgw',
+        paste('  temp              ',as.character(JR1data$temp_C[n])),
+        
+        paste('  pressure          ',as.character(P_atm_Boulder)),
+        paste('  Alkalinity        ',as.character(JR1data$undiluted_Alk_mmol_kg[n])),     
+        paste('  pH              ',as.character(JR1data$pH[n])),     
+        paste('  Ca                ',as.character(JR1data$Ca_mmol_kg[n])),     
+        paste('  Mg                ',as.character(JR1data$Mg_mmol_kg[n])),     
+        paste('  Na                ',as.character(JR1data$Na_mmol_kg[n])),     
+        paste('  K                 ',as.character(JR1data$K_mmol_kg[n])),     
+        paste('  Cl                ',as.character(JR1data$Cl_mmol_kg[n])),     
+        paste('  S(6)              ',as.character(JR1data$SO4_mmol_kg[n])),      
+        'SELECTED_OUTPUT       ',
+        '  -high precision   TRUE',
+        '  -totals           C(4) Na Ca Mg K Cl S(6)',
+        '  -molalities       CO2',
+        '  -si               aragonite calcite dolomite magnesite monohydrocalcite hydromagnesite gypsum CO2(g)',
+        '  -activities       H2O')  
+      phrRunString(input1) 
+      output1 <- phrGetSelectedOutput() 
+      JR1data$Omega_ar[n] <- 10^output1$n1$si_aragonite 
+      JR1data$Omega_cc[n] <- 10^output1$n1$si_calcite
+      JR1data$Omega_mhc[n] <- 10^output1$n1$si_monohydrocalcite
+      JR1data$Omega_dol[n] <- 10^output1$n1$si_dolomite
+      JR1data$Omega_mag[n] <- 10^output1$n1$si_magnesite
+      JR1data$Omega_hmag[n] <- 10^output1$n1$si_hydromagnesite
+      JR1data$Omega_gy[n] <- 10^output1$n1$si_gypsum
+      JR1data$DIC_mmol_kg[n] <- output1$n1$C.4..mol.kgw.*1000 
+      JR1data$pCO2[n] <- 10^output1$n1$si_CO2.g.*10^6
+      JR1data$wateractivity[n] <- 10^output1$n1$la_H2O
+      JR1data$CO2_mol_kg[n] <- output1$n1$m_CO2.mol.kgw.
+      JR1data$salinity[n] <- output1$n1$Na.mol.kgw.*22.989769 + output1$n1$Ca.mol.kgw.*40.078 + output1$n1$Mg.mol.kgw.*24.305 + output1$n1$K.mol.kgw.*39.0983 + output1$n1$Cl.mol.kgw.*35.453 + output1$n1$S.6..mol.kgw.*96.06 + output1$n1$C.4..mol.kgw.*61.0168
+    }
+  }
+  
+  for (n in 1:length(JR2data$Datetime)) {
+    if (is.na(JR2data$undiluted_Alk_mmol_kg[n]) == TRUE) {
+      JR2data$Omega_ar[n] <- NA
+      JR2data$Omega_cc[n] <- NA
+      JR2data$Omega_mhc[n] <- NA
+      JR2data$Omega_dol[n] <- NA
+      JR2data$Omega_mag[n] <- NA
+      JR2data$Omega_hmag[n] <- NA
+      JR2data$Omega_gy[n] <- NA
+      JR2data$DIC_mmol_kg[n] <- NA
+      JR2data$pCO2[n] <- NA
+      JR2data$wateractivity[n] <- NA
+      JR2data$CO2_mol_kg[n] <- NA
+      JR2data$salinity[n] <- NA
+    } else if (is.na(JR2data$undiluted_Alk_mmol_kg[n]) == FALSE) {
+      input1 <- c(
+        ' PHASES',
+        ' Hydromagnesite',
+        '      Mg5(CO3)4(OH)2:4H2O +6.0000 H+  =  + 4.0000 HCO3- + 5.0000 Mg++ + 6.0000 H2O',
+        '      log_k           30.8539',
+        ' -delta_H	-289.696	kJ/mol',	# Calculated enthalpy of reaction
+        ' Monohydrocalcite',
+        '    CaCO3:H2O +1.0000 H+  =  + 1.0000 Ca++ + 1.0000 H2O + 1.0000 HCO3-',
+        '      log_k           2.6824',
+        ' -delta_H	-20.5648	kJ/mol',	# Calculated enthalpy of reaction
+        
+        '  SOLUTION 1 river water',
+        '  units         mmol/kgw',
+        paste('  temp              ',as.character(JR2data$temp_C[n])),
+        
+        paste('  pressure          ',as.character(P_atm_Boulder)),
+        paste('  Alkalinity        ',as.character(JR2data$undiluted_Alk_mmol_kg[n])),     
+        paste('  pH              ',as.character(JR2data$pH[n])),     
+        paste('  Ca                ',as.character(JR2data$Ca_mmol_kg[n])),     
+        paste('  Mg                ',as.character(JR2data$Mg_mmol_kg[n])),     
+        paste('  Na                ',as.character(JR2data$Na_mmol_kg[n])),     
+        paste('  K                 ',as.character(JR2data$K_mmol_kg[n])),     
+        paste('  Cl                ',as.character(JR2data$Cl_mmol_kg[n])),     
+        paste('  S(6)              ',as.character(JR2data$SO4_mmol_kg[n])),      
+        'SELECTED_OUTPUT       ',
+        '  -high precision   TRUE',
+        '  -totals           C(4) Na Ca Mg K Cl S(6)',
+        '  -molalities       CO2',
+        '  -si               aragonite calcite dolomite magnesite monohydrocalcite hydromagnesite gypsum CO2(g)',
+        '  -activities       H2O')  
+      phrRunString(input1) 
+      output1 <- phrGetSelectedOutput() 
+      JR2data$Omega_ar[n] <- 10^output1$n1$si_aragonite 
+      JR2data$Omega_cc[n] <- 10^output1$n1$si_calcite
+      JR2data$Omega_mhc[n] <- 10^output1$n1$si_monohydrocalcite
+      JR2data$Omega_dol[n] <- 10^output1$n1$si_dolomite
+      JR2data$Omega_mag[n] <- 10^output1$n1$si_magnesite
+      JR2data$Omega_hmag[n] <- 10^output1$n1$si_hydromagnesite
+      JR2data$Omega_gy[n] <- 10^output1$n1$si_gypsum
+      JR2data$DIC_mmol_kg[n] <- output1$n1$C.4..mol.kgw.*1000 
+      JR2data$pCO2[n] <- 10^output1$n1$si_CO2.g.*10^6
+      JR2data$wateractivity[n] <- 10^output1$n1$la_H2O
+      JR2data$CO2_mol_kg[n] <- output1$n1$m_CO2.mol.kgw.
+      JR2data$salinity[n] <- output1$n1$Na.mol.kgw.*22.989769 + output1$n1$Ca.mol.kgw.*40.078 + output1$n1$Mg.mol.kgw.*24.305 + output1$n1$K.mol.kgw.*39.0983 + output1$n1$Cl.mol.kgw.*35.453 + output1$n1$S.6..mol.kgw.*96.06 + output1$n1$C.4..mol.kgw.*61.0168
+    }
+  }
+})
+```
+
+# CO~2~ exchange parameterizations
+
+evapoRate includes 4 different modes for representing CO~2~ gas exchange. The sections below demonstrate how each mode works. For these examples of CO~2~ gas exchange, we use the seawater evaporation dataset for data-model comparisons.
+
+## Example 1: no CO~2~ exchange
+
+In its most basic (default) mode, evapoRate does not include CO~2~ exchange. Although this does not influence some conservative ions, this will likely produce unrealistic results with respect to carbonate chemistry systematics (pH, pCO~2~, and \[DIC\]). However, it is provided for simplicity and can be a useful point of comparison. This example also shows a relatively simple version of a parameterization of evapoRate that can be used to compare model results with experimental data. Here, evapoRate is run in a for-loop where timestep durations and increments of water loss are calculated to match experimentally observed evaporation rates.
+
+```{r no-CO2-exchange}
+time <- seq(from = 0,
+            to = SWdata$Elapsed_time_hr[length(SWdata$Elapsed_time_hr)-2],
+            by = 1)
+water_init_g <- rep(0,length(time))
+evap_loss <- rep(0,length(time))
+sum_water_loss_g <- rep(0,length(time))
+
+for (ii in 1:(length(SWdata$Elapsed_time_hr)-3)) {
+  timestart <- as.numeric(which(time == SWdata$Elapsed_time_hr[ii])[1])
+  timestop <- as.numeric(which(time == SWdata$Elapsed_time_hr[ii+1])[1])
+  evap_loss[timestart:(timestop-1)] <- mean(c(SWdata$Evap_mass_loss_g_SW1[ii+1],SWdata$Evap_mass_loss_g_SW2[ii+1]))/(SWdata$Elapsed_time_hr[ii+1] - SWdata$Elapsed_time_hr[ii])
+}
+
+evap_loss[0] <- 0
+evap_loss[length(evap_loss)] <- evap_loss[(length(evap_loss)-1)]
+
+for (jj in 2:(length(SWdata$Elapsed_time_hr)-2)) {
+  index <- as.numeric(which(time == SWdata$Elapsed_time_hr[jj])) - 1
+  evap_loss[index] <- mean(c(evap_loss[index-1],evap_loss[index+1]))
+}
+
+water_init_g[1] <- mean(c(SWdata$Solution_mass_final_g_SW1[1],SWdata$Solution_mass_final_g_SW2[1]))
+
+avg_sampling_loss <- mean(c(SWdata$Sampling_mass_loss_g_SW1,SWdata$Sampling_mass_loss_g_SW2))
+
+counter <- 2
+
+for (hh in 2:length(time)) {
+  if (time[hh] == SWdata$Elapsed_time_hr[counter]) {
+    water_init_g[hh] <- water_init_g[hh-1] - evap_loss[hh] - avg_sampling_loss
+    counter <- counter + 1
+  } else {
+    water_init_g[hh] <- water_init_g[hh-1] - evap_loss[hh]
+  }
+}
+
+sum_water_loss_g[2] <- evap_loss[2]
+
+for (nn in 3:length(time)) {
+  sum_water_loss_g[nn] <- sum_water_loss_g[nn-1] + evap_loss[nn]
+}
+
+evap_model <- data.frame(time,water_init_g,evap_loss,sum_water_loss_g)
+evap_model <- rename(evap_model,
+                     "water_loss_g" = "evap_loss",
+                     "elapsed_time" = "time")
+
+evap_model$Ca_mmol_kg[1] <- SWdata$Ca_mmol_kg[2]
+evap_model$K_mmol_kg[1] <- SWdata$K_mmol_kg[1]
+evap_model$Mg_mmol_kg[1] <- SWdata$Mg_mmol_kg[2]
+evap_model$Na_mmol_kg[1] <- SWdata$Na_mmol_kg[1]
+evap_model$Cl_mmol_kg[1] <- SWdata$Cl_mmol_kg[1]
+evap_model$SO4_mmol_kg[1] <- SWdata$SO4_mmol_kg[1]
+evap_model$salinity[1] <- SWdata$salinity[1]
+evap_model$Alk_mmol_kg[1] <- SWdata$undiluted_Alk_mmol_kg[2]
+evap_model$pH[1] <- SWdata$pH_mean[2]
+evap_model$DIC_mmol_kg[1] <- SWdata$DIC_mmol_kg[2]
+evap_model$pCO2[1] <- SWdata$pCO2[2]
+evap_model$Omega_ar[1] <- SWdata$Omega_ar[2]
+evap_model$Omega_cc[1] <- SWdata$Omega_cc[2]
+evap_model$Omega_gy[1] <- SWdata$Omega_gy[1]
+
+for (n in 2:length(evap_model$elapsed_time)) {
+  output <- evapoRate(tempC = tempC,
+                      P_atm = P_atm_Boulder,
+                      xCO2 = 550,
+                      water_initial_mass = evap_model$water_init_g[n-1]/1000,
+                      water_removed_mass = evap_model$water_loss_g[n]/1000,
+                      Na_i = evap_model$Na_mmol_kg[n-1],
+                      Mg_i = evap_model$Mg_mmol_kg[n-1],
+                      Ca_i = evap_model$Ca_mmol_kg[n-1],
+                      K_i = evap_model$K_mmol_kg[n-1],
+                      Cl_i = evap_model$Cl_mmol_kg[n-1],
+                      SO4_i = evap_model$SO4_mmol_kg[n-1],
+                      Alk_i = evap_model$Alk_mmol_kg[n-1],
+                      DIC_i = evap_model$DIC_mmol_kg[n-1],
+                      gas_exchange_mode = "none",
+                      timestep = diff(evap_model$elapsed_time)[n]
+                      )
+  
+  evap_model$Na_mmol_kg[n] <- output$Na_mmol_kg
+  evap_model$Mg_mmol_kg[n] <- output$Mg_mmol_kg
+  evap_model$Ca_mmol_kg[n] <- output$Ca_mmol_kg
+  evap_model$K_mmol_kg[n] <- output$K_mmol_kg
+  evap_model$Cl_mmol_kg[n] <- output$Cl_mmol_kg
+  evap_model$SO4_mmol_kg[n] <- output$SO4_mmol_kg
+  evap_model$salinity[n] <- output$salinity
+  evap_model$Alk_mmol_kg[n] <- output$Alk_mmol_kg
+  evap_model$DIC_mmol_kg[n] <- output$DIC_mmol_kg
+  evap_model$pCO2[n] <- output$pCO2
+  evap_model$pH[n] <- output$pH
+  evap_model$Omega_ar[n] <- output$Omega_ar
+  evap_model$Omega_cc[n] <- output$Omega_cc
+  evap_model$Omega_gy[n] <- output$Omega_gy
+}
+evap_model_base <- evap_model
+
+SWobs <- select(SWdata[1:16,],c(Elapsed_time_hr,Ca_mmol_kg,K_mmol_kg,Mg_mmol_kg,Na_mmol_kg,Cl_mmol_kg,SO4_mmol_kg,Omega_ar,Omega_gy,DIC_mmol_kg,pCO2,undiluted_Alk_mmol_kg,pH_mean))
+SWobs <- rename(SWobs,
+                "Alk_mmol_kg" = "undiluted_Alk_mmol_kg",
+                "elapsed_time" = "Elapsed_time_hr",
+                "pH" = "pH_mean")
+SWobs$group <- "observations"
+
+evap_model$group <- "model"
+
+suppressMessages({
+  plotdata <- full_join(SWobs,evap_model)
+})
+
+plotdata <- pivot_longer(plotdata,cols = c("DIC_mmol_kg",
+                                           "Alk_mmol_kg",
+                                           "Omega_ar",
+                                           "Omega_gy",
+                                           "pH",
+                                           "pCO2",
+                                           "Ca_mmol_kg",
+                                           "Mg_mmol_kg",
+                                           "Na_mmol_kg",
+                                           "K_mmol_kg",
+                                           "Cl_mmol_kg",
+                                           "SO4_mmol_kg"),
+                            names_to = "parameter",
+                            values_to = "value")
+
+plotdata <- mutate(plotdata,
+                      parameter = factor(parameter,
+                                         levels = c("Na_mmol_kg",
+                                                    "Mg_mmol_kg",
+                                                    "Ca_mmol_kg",
+                                                    "K_mmol_kg",
+                                                    "Cl_mmol_kg",
+                                                    "SO4_mmol_kg",
+                                                    "Alk_mmol_kg",
+                                                    "DIC_mmol_kg",
+                                                    "Omega_ar",
+                                                    "pH",
+                                                    "pCO2",
+                                                    "Omega_gy"),
+                                         labels = c("[Na] (mmol/kg)",
+                                                    "[Mg] (mmol/kg)",
+                                                    "[Ca] (mmol/kg)",
+                                                    "[K] (mmol/kg)",
+                                                    "[Cl] (mmol/kg)",
+                                                    "[SO\u2084] (mmol/kg)",
+                                                    "Alk (mequiv/kg)",
+                                                    "DIC (mmol/kg)",
+                                                    "aragonite \u03a9",
+                                                    "pH",
+                                                    "pCO\u2082 (\u03bcatm)",
+                                                    "gypsum \u03a9"),
+                                         ordered = TRUE))
+
+ggplot(data = plotdata,
+       mapping = aes(x = elapsed_time,
+                     y = value,
+                     color = parameter)) +
+  geom_point(data = ~subset(., group == "observations"),
+             size = 3) + 
+  geom_line(data = ~subset(., group == "model")) +
+  facet_wrap(~parameter,
+             ncol = 3,
+             scales = "free_y") +
+  scale_color_manual(
+    values=lacroix_palette(
+      "PassionFruit", 
+      type = "continuous",
+      n = 12)) +
+  ylab(NULL) +
+  xlab("elapsed time (hr)") +
+  theme_light() +
+  theme(legend.position = "none") -> plot_base
+
+plot(plot_base)
+```
+
+As you can see in this output figure, for this experiment, the "none" gas exchange mode does a relatively good job predicting the trajectories of most major ions, but fails miserably with pH and pCO~2~ - these are the two parameters most influenced by CO~2~ exchange in this system.
+
+## Example 2: stagnant film model
+
+The second CO~2~ exchange mode is based on the stagnant film model following @lewis1924, which represents CO~2~ invasion or degassing as diffusion across a stagnant film of a given thickness at the air-water interface. For this and the other two gas exchange modes, the flux of gas into or out of the solution is calculated as:
+
+$$
+F_{gas}=k_{CO_{2}}K_{H}(pCO_{2, fluid}-pCO_{2, atm})
+$$
+
+where $k_{CO_2}$ is the gas transfer velocity, $K_H$ is the Henry's law constant for CO~2~, and pCO~2,fluid~ and pCO~2,atm~ are the partial pressures of CO~2~ in the fluid and adjacent atmosphere, respectively. The latter two terms are the same for the three modes were gas exchange is allowed to occur; the formulation of $k_{CO_2}$ differs among the modes. $K_H$ is calculated as:
+
+$$
+K_H=\frac{m_{CO_2}}{pCO_{2,atm}}
+$$
+
+where $m_{CO_2}$ is the concentration of CO~2~ if the solution were at equilibrium with the atmosphere and is calculated internally by PHREEQC.
+
+For the stagnant film model, $k_{CO_2}$ is calculated as:
+
+$$
+k_{CO_2}=\frac{D_{CO_2}}{z}
+$$
+
+where $D_{CO_2}$ is the diffusivity of CO~2~ and *z* is the thickness of the stagnant film at the air-water interface. *z* is provided as an input by the user, and $D_{CO_2}$ is calculated as a function of temperature (T~K~, Kelvin) and fluid dynamic viscosity (𝜂~fluid~) [@cadogan2014a; @cadogan2014]:
+
+$$
+D_{CO_2}=\frac{k_BT_K}{n_{SE}\pi\eta_{fluid}a}
+$$
+
+where k~B~ is Boltzmann's constant, n~SE~ = 4 is the dimensionless Stokes-Einstein number, and $a=a_{298}[1+\alpha(T_K-298)]$ is the hydrodynamic radius of CO~2~ (a~298~ = 168 pm and 𝛼 = 2x10^-3^).
+
+In summary, the stagnant film mode requires two inputs from the user: *z* and a surface area over which evaporation is occuring.
+
+```{r stagnant-film}
+time <- seq(from = 0,
+            to = SWdata$Elapsed_time_hr[length(SWdata$Elapsed_time_hr)-2],
+            by = 1)
+water_init_g <- rep(0,length(time))
+evap_loss <- rep(0,length(time))
+sum_water_loss_g <- rep(0,length(time))
+
+for (ii in 1:(length(SWdata$Elapsed_time_hr)-3)) {
+  timestart <- as.numeric(which(time == SWdata$Elapsed_time_hr[ii])[1])
+  timestop <- as.numeric(which(time == SWdata$Elapsed_time_hr[ii+1])[1])
+  evap_loss[timestart:(timestop-1)] <- mean(c(SWdata$Evap_mass_loss_g_SW1[ii+1],SWdata$Evap_mass_loss_g_SW2[ii+1]))/(SWdata$Elapsed_time_hr[ii+1] - SWdata$Elapsed_time_hr[ii])
+}
+
+evap_loss[0] <- 0
+evap_loss[length(evap_loss)] <- evap_loss[(length(evap_loss)-1)]
+
+for (jj in 2:(length(SWdata$Elapsed_time_hr)-2)) {
+  index <- as.numeric(which(time == SWdata$Elapsed_time_hr[jj])) - 1
+  evap_loss[index] <- mean(c(evap_loss[index-1],evap_loss[index+1]))
+}
+
+water_init_g[1] <- mean(c(SWdata$Solution_mass_final_g_SW1[1],SWdata$Solution_mass_final_g_SW2[1]))
+
+avg_sampling_loss <- mean(c(SWdata$Sampling_mass_loss_g_SW1,SWdata$Sampling_mass_loss_g_SW2))
+
+counter <- 2
+
+for (hh in 2:length(time)) {
+  if (time[hh] == SWdata$Elapsed_time_hr[counter]) {
+    water_init_g[hh] <- water_init_g[hh-1] - evap_loss[hh] - avg_sampling_loss
+    counter <- counter + 1
+  } else {
+    water_init_g[hh] <- water_init_g[hh-1] - evap_loss[hh]
+  }
+}
+
+sum_water_loss_g[2] <- evap_loss[2]
+
+for (nn in 3:length(time)) {
+  sum_water_loss_g[nn] <- sum_water_loss_g[nn-1] + evap_loss[nn]
+}
+
+evap_model <- data.frame(time,water_init_g,evap_loss,sum_water_loss_g)
+evap_model <- rename(evap_model,
+                     "water_loss_g" = "evap_loss",
+                     "elapsed_time" = "time")
+
+evap_model$Ca_mmol_kg[1] <- SWdata$Ca_mmol_kg[2]
+evap_model$K_mmol_kg[1] <- SWdata$K_mmol_kg[1]
+evap_model$Mg_mmol_kg[1] <- SWdata$Mg_mmol_kg[2]
+evap_model$Na_mmol_kg[1] <- SWdata$Na_mmol_kg[1]
+evap_model$Cl_mmol_kg[1] <- SWdata$Cl_mmol_kg[1]
+evap_model$SO4_mmol_kg[1] <- SWdata$SO4_mmol_kg[1]
+evap_model$salinity[1] <- SWdata$salinity[1]
+evap_model$Alk_mmol_kg[1] <- SWdata$undiluted_Alk_mmol_kg[2]
+evap_model$pH[1] <- SWdata$pH_mean[2]
+evap_model$DIC_mmol_kg[1] <- SWdata$DIC_mmol_kg[2]
+evap_model$pCO2[1] <- SWdata$pCO2[2]
+evap_model$Omega_ar[1] <- SWdata$Omega_ar[2]
+evap_model$Omega_cc[1] <- SWdata$Omega_cc[2]
+evap_model$Omega_gy[1] <- SWdata$Omega_gy[1]
+
+beaker_diam <- 4.25 #{inches}
+beaker_diam <- beaker_diam*0.0254 #{m}
+beaker_SA <- pi*(beaker_diam/2)^2 #{m^2}
+
+for (n in 2:length(evap_model$elapsed_time)) {
+  output <- evapoRate(tempC = tempC,
+                      P_atm = P_atm_Boulder,
+                      xCO2 = 550,
+                      water_initial_mass = evap_model$water_init_g[n-1]/1000,
+                      water_removed_mass = evap_model$water_loss_g[n]/1000,
+                      Na_i = evap_model$Na_mmol_kg[n-1],
+                      Mg_i = evap_model$Mg_mmol_kg[n-1],
+                      Ca_i = evap_model$Ca_mmol_kg[n-1],
+                      K_i = evap_model$K_mmol_kg[n-1],
+                      Cl_i = evap_model$Cl_mmol_kg[n-1],
+                      SO4_i = evap_model$SO4_mmol_kg[n-1],
+                      Alk_i = evap_model$Alk_mmol_kg[n-1],
+                      DIC_i = evap_model$DIC_mmol_kg[n-1],
+                      gas_exchange_mode = "stagnant_film",
+                      z_film = 300*10^-6,
+                      surface_area = beaker_SA,
+                      timestep = diff(evap_model$elapsed_time)[n-1]
+                      )
+  
+  evap_model$Na_mmol_kg[n] <- output$Na_mmol_kg
+  evap_model$Mg_mmol_kg[n] <- output$Mg_mmol_kg
+  evap_model$Ca_mmol_kg[n] <- output$Ca_mmol_kg
+  evap_model$K_mmol_kg[n] <- output$K_mmol_kg
+  evap_model$Cl_mmol_kg[n] <- output$Cl_mmol_kg
+  evap_model$SO4_mmol_kg[n] <- output$SO4_mmol_kg
+  evap_model$salinity[n] <- output$salinity
+  evap_model$Alk_mmol_kg[n] <- output$Alk_mmol_kg
+  evap_model$DIC_mmol_kg[n] <- output$DIC_mmol_kg
+  evap_model$pCO2[n] <- output$pCO2
+  evap_model$pH[n] <- output$pH
+  evap_model$Omega_ar[n] <- output$Omega_ar
+  evap_model$Omega_cc[n] <- output$Omega_cc
+  evap_model$Omega_gy[n] <- output$Omega_gy
+}
+evap_model_stagnant_film <- evap_model
+
+SWobs <- select(SWdata[1:16,],c(Elapsed_time_hr,Ca_mmol_kg,K_mmol_kg,Mg_mmol_kg,Na_mmol_kg,Cl_mmol_kg,SO4_mmol_kg,Omega_ar,Omega_gy,DIC_mmol_kg,pCO2,undiluted_Alk_mmol_kg,pH_mean))
+SWobs <- rename(SWobs,
+                "Alk_mmol_kg" = "undiluted_Alk_mmol_kg",
+                "elapsed_time" = "Elapsed_time_hr",
+                "pH" = "pH_mean")
+SWobs$group <- "observations"
+
+evap_model$group <- "model"
+
+suppressMessages({
+  plotdata <- full_join(SWobs,evap_model)
+})
+
+plotdata <- pivot_longer(plotdata,cols = c("DIC_mmol_kg",
+                                           "Alk_mmol_kg",
+                                           "Omega_ar",
+                                           "Omega_gy",
+                                           "pH",
+                                           "pCO2",
+                                           "Ca_mmol_kg",
+                                           "Mg_mmol_kg",
+                                           "Na_mmol_kg",
+                                           "K_mmol_kg",
+                                           "Cl_mmol_kg",
+                                           "SO4_mmol_kg"),
+                            names_to = "parameter",
+                            values_to = "value")
+
+plotdata <- mutate(plotdata,
+                      parameter = factor(parameter,
+                                         levels = c("Na_mmol_kg",
+                                                    "Mg_mmol_kg",
+                                                    "Ca_mmol_kg",
+                                                    "K_mmol_kg",
+                                                    "Cl_mmol_kg",
+                                                    "SO4_mmol_kg",
+                                                    "Alk_mmol_kg",
+                                                    "DIC_mmol_kg",
+                                                    "Omega_ar",
+                                                    "pH",
+                                                    "pCO2",
+                                                    "Omega_gy"),
+                                         labels = c("[Na] (mmol/kg)",
+                                                    "[Mg] (mmol/kg)",
+                                                    "[Ca] (mmol/kg)",
+                                                    "[K] (mmol/kg)",
+                                                    "[Cl] (mmol/kg)",
+                                                    "[SO\u2084] (mmol/kg)",
+                                                    "Alk (mequiv/kg)",
+                                                    "DIC (mmol/kg)",
+                                                    "aragonite \u03a9",
+                                                    "pH",
+                                                    "pCO\u2082 (\u03bcatm)",
+                                                    "gypsum \u03a9"),
+                                         ordered = TRUE))
+
+ggplot(data = plotdata,
+       mapping = aes(x = elapsed_time,
+                     y = value,
+                     color = parameter)) +
+  geom_point(data = ~subset(., group == "observations"),
+             size = 3) + 
+  geom_line(data = ~subset(., group == "model")) +
+  facet_wrap(~parameter,
+             ncol = 3,
+             scales = "free_y") +
+  scale_color_manual(
+    values=lacroix_palette(
+      "PassionFruit", 
+      type = "continuous",
+      n = 12)) +
+  ylab(NULL) +
+  xlab("elapsed time (hr)") +
+  theme_light() +
+  theme(legend.position = "none") -> plot_stagnant_film
+
+plot(plot_stagnant_film)
+```
+
+As you can see from the output plots, including CO~2~ exchange significantly improves the model prediction of the trajectories of pH and pCO~2~.
+
+## Example 3: solid wall model
+
+The third CO~2~ exchange mode is an implementation of the solid wall model based on @deacon1977. In this model, gas transfer velocity is calculated as:
+
+$$
+k_{CO_2}=0.082\sqrt{\frac{\rho_{air}}{\rho_{fluid}}}Sc^{-2/3}u_*
+$$
+
+where 𝜌~air~ and 𝜌~fluid~ are the densities of air and fluid, respectively (𝜌~air~ is provided by the user, 𝜌~fluid~ is calculated by evapoRate); $Sc=\frac{\nu}{D_{CO_2}}$ is the dimensionless Schmidt number, in which 𝜈 is the kinematic viscosity of the fluid and is calculated by evapoRate; and $u_*$ is the friction velocity of indoor air. evapoRate calculates $u_*$ as a function of indoor air velocity (u~air~, a required user input), fluid kinematic viscosity (𝜈, calculated by evapoRate), and surface length over which evaporation is occuring (*l*, a required user input):
+
+$$
+u_*=0.477(\log_{10}R_l)^{1.29}u_{air}
+$$
+
+where $R_l=\frac{u_{air}l}{\nu}$.
+
+In summary, the solid wall mode requires four inputs from the user: 𝜌~air~, u~air~, *l*, and the surface area over which evaporation is occurring. There is also an optional parameter, ⍺~exchange~, a factor accounting for CO~2~ exchange happening faster than predicted for diffusion alone due to CO~2~ hydration and/or dehydration reactions.
+
+```{r solid-wall}
+time <- seq(from = 0,
+            to = SWdata$Elapsed_time_hr[length(SWdata$Elapsed_time_hr)-2],
+            by = 1)
+water_init_g <- rep(0,length(time))
+evap_loss <- rep(0,length(time))
+sum_water_loss_g <- rep(0,length(time))
+
+for (ii in 1:(length(SWdata$Elapsed_time_hr)-3)) {
+  timestart <- as.numeric(which(time == SWdata$Elapsed_time_hr[ii])[1])
+  timestop <- as.numeric(which(time == SWdata$Elapsed_time_hr[ii+1])[1])
+  evap_loss[timestart:(timestop-1)] <- mean(c(SWdata$Evap_mass_loss_g_SW1[ii+1],SWdata$Evap_mass_loss_g_SW2[ii+1]))/(SWdata$Elapsed_time_hr[ii+1] - SWdata$Elapsed_time_hr[ii])
+}
+
+evap_loss[0] <- 0
+evap_loss[length(evap_loss)] <- evap_loss[(length(evap_loss)-1)]
+
+for (jj in 2:(length(SWdata$Elapsed_time_hr)-2)) {
+  index <- as.numeric(which(time == SWdata$Elapsed_time_hr[jj])) - 1
+  evap_loss[index] <- mean(c(evap_loss[index-1],evap_loss[index+1]))
+}
+
+water_init_g[1] <- mean(c(SWdata$Solution_mass_final_g_SW1[1],SWdata$Solution_mass_final_g_SW2[1]))
+
+avg_sampling_loss <- mean(c(SWdata$Sampling_mass_loss_g_SW1,SWdata$Sampling_mass_loss_g_SW2))
+
+counter <- 2
+
+for (hh in 2:length(time)) {
+  if (time[hh] == SWdata$Elapsed_time_hr[counter]) {
+    water_init_g[hh] <- water_init_g[hh-1] - evap_loss[hh] - avg_sampling_loss
+    counter <- counter + 1
+  } else {
+    water_init_g[hh] <- water_init_g[hh-1] - evap_loss[hh]
+  }
+}
+
+sum_water_loss_g[2] <- evap_loss[2]
+
+for (nn in 3:length(time)) {
+  sum_water_loss_g[nn] <- sum_water_loss_g[nn-1] + evap_loss[nn]
+}
+
+evap_model <- data.frame(time,water_init_g,evap_loss,sum_water_loss_g)
+evap_model <- rename(evap_model,
+                     "water_loss_g" = "evap_loss",
+                     "elapsed_time" = "time")
+
+evap_model$Ca_mmol_kg[1] <- SWdata$Ca_mmol_kg[2]
+evap_model$K_mmol_kg[1] <- SWdata$K_mmol_kg[1]
+evap_model$Mg_mmol_kg[1] <- SWdata$Mg_mmol_kg[2]
+evap_model$Na_mmol_kg[1] <- SWdata$Na_mmol_kg[1]
+evap_model$Cl_mmol_kg[1] <- SWdata$Cl_mmol_kg[1]
+evap_model$SO4_mmol_kg[1] <- SWdata$SO4_mmol_kg[1]
+evap_model$salinity[1] <- SWdata$salinity[1]
+evap_model$Alk_mmol_kg[1] <- SWdata$undiluted_Alk_mmol_kg[2]
+evap_model$pH[1] <- SWdata$pH_mean[2]
+evap_model$DIC_mmol_kg[1] <- SWdata$DIC_mmol_kg[2]
+evap_model$pCO2[1] <- SWdata$pCO2[2]
+evap_model$Omega_ar[1] <- SWdata$Omega_ar[2]
+evap_model$Omega_cc[1] <- SWdata$Omega_cc[2]
+evap_model$Omega_gy[1] <- SWdata$Omega_gy[1]
+
+beaker_diam <- 4.25 #{inches}
+beaker_diam <- beaker_diam*0.0254 #{m}
+beaker_SA <- pi*(beaker_diam/2)^2 #{m^2}
+
+for (n in 2:length(evap_model$elapsed_time)) {
+  output <- evapoRate(tempC = tempC,
+                      P_atm = P_atm_Boulder,
+                      xCO2 = 550,
+                      water_initial_mass = evap_model$water_init_g[n-1]/1000,
+                      water_removed_mass = evap_model$water_loss_g[n]/1000,
+                      Na_i = evap_model$Na_mmol_kg[n-1],
+                      Mg_i = evap_model$Mg_mmol_kg[n-1],
+                      Ca_i = evap_model$Ca_mmol_kg[n-1],
+                      K_i = evap_model$K_mmol_kg[n-1],
+                      Cl_i = evap_model$Cl_mmol_kg[n-1],
+                      SO4_i = evap_model$SO4_mmol_kg[n-1],
+                      Alk_i = evap_model$Alk_mmol_kg[n-1],
+                      DIC_i = evap_model$DIC_mmol_kg[n-1],
+                      gas_exchange_mode = "solid_wall",
+                      rho_air = 0.984,
+                      u_air = 0.2,
+                      surface_length = beaker_diam,
+                      surface_area = beaker_SA,
+                      alpha_exchange = 8,
+                      timestep = diff(evap_model$elapsed_time)[n-1]
+                      )
+  
+  evap_model$Na_mmol_kg[n] <- output$Na_mmol_kg
+  evap_model$Mg_mmol_kg[n] <- output$Mg_mmol_kg
+  evap_model$Ca_mmol_kg[n] <- output$Ca_mmol_kg
+  evap_model$K_mmol_kg[n] <- output$K_mmol_kg
+  evap_model$Cl_mmol_kg[n] <- output$Cl_mmol_kg
+  evap_model$SO4_mmol_kg[n] <- output$SO4_mmol_kg
+  evap_model$salinity[n] <- output$salinity
+  evap_model$Alk_mmol_kg[n] <- output$Alk_mmol_kg
+  evap_model$DIC_mmol_kg[n] <- output$DIC_mmol_kg
+  evap_model$pCO2[n] <- output$pCO2
+  evap_model$pH[n] <- output$pH
+  evap_model$Omega_ar[n] <- output$Omega_ar
+  evap_model$Omega_cc[n] <- output$Omega_cc
+  evap_model$Omega_gy[n] <- output$Omega_gy
+}
+evap_model_solid_wall <- evap_model
+
+SWobs <- select(SWdata[1:16,],c(Elapsed_time_hr,Ca_mmol_kg,K_mmol_kg,Mg_mmol_kg,Na_mmol_kg,Cl_mmol_kg,SO4_mmol_kg,Omega_ar,Omega_gy,DIC_mmol_kg,pCO2,undiluted_Alk_mmol_kg,pH_mean))
+SWobs <- rename(SWobs,
+                "Alk_mmol_kg" = "undiluted_Alk_mmol_kg",
+                "elapsed_time" = "Elapsed_time_hr",
+                "pH" = "pH_mean")
+SWobs$group <- "observations"
+
+evap_model$group <- "model"
+
+suppressMessages({
+  plotdata <- full_join(SWobs,evap_model)
+})
+
+plotdata <- pivot_longer(plotdata,cols = c("DIC_mmol_kg",
+                                           "Alk_mmol_kg",
+                                           "Omega_ar",
+                                           "Omega_gy",
+                                           "pH",
+                                           "pCO2",
+                                           "Ca_mmol_kg",
+                                           "Mg_mmol_kg",
+                                           "Na_mmol_kg",
+                                           "K_mmol_kg",
+                                           "Cl_mmol_kg",
+                                           "SO4_mmol_kg"),
+                            names_to = "parameter",
+                            values_to = "value")
+
+plotdata <- mutate(plotdata,
+                      parameter = factor(parameter,
+                                         levels = c("Na_mmol_kg",
+                                                    "Mg_mmol_kg",
+                                                    "Ca_mmol_kg",
+                                                    "K_mmol_kg",
+                                                    "Cl_mmol_kg",
+                                                    "SO4_mmol_kg",
+                                                    "Alk_mmol_kg",
+                                                    "DIC_mmol_kg",
+                                                    "Omega_ar",
+                                                    "pH",
+                                                    "pCO2",
+                                                    "Omega_gy"),
+                                         labels = c("[Na] (mmol/kg)",
+                                                    "[Mg] (mmol/kg)",
+                                                    "[Ca] (mmol/kg)",
+                                                    "[K] (mmol/kg)",
+                                                    "[Cl] (mmol/kg)",
+                                                    "[SO\u2084] (mmol/kg)",
+                                                    "Alk (mequiv/kg)",
+                                                    "DIC (mmol/kg)",
+                                                    "aragonite \u03a9",
+                                                    "pH",
+                                                    "pCO\u2082 (\u03bcatm)",
+                                                    "gypsum \u03a9"),
+                                         ordered = TRUE))
+
+ggplot(data = plotdata,
+       mapping = aes(x = elapsed_time,
+                     y = value,
+                     color = parameter)) +
+  geom_point(data = ~subset(., group == "observations"),
+             size = 3) + 
+  geom_line(data = ~subset(., group == "model")) +
+  facet_wrap(~parameter,
+             ncol = 3,
+             scales = "free_y") +
+  scale_color_manual(
+    values=lacroix_palette(
+      "PassionFruit", 
+      type = "continuous",
+      n = 12)) +
+  ylab(NULL) +
+  xlab("elapsed time (hr)") +
+  theme_light() +
+  theme(legend.position = "none") -> plot_solid_wall
+
+plot(plot_solid_wall)
+```
+
+## Example 4: wind model
+
+Finally, wind-driven gas exchange is included so that the model could be applied to real-world (i.e., non-indoor) evaporation scenarios. In this model, gas transfer velocity is formulated following @wanninkhof2014 as:
+
+$$
+k_{CO_2}=0.251u_{wind}^2(Sc/600)^{-1/2}
+$$
+
+where u~wind~ is wind velocity. This mode requires two inputs from the user: u~wind~ and surface area.
+
+```{r wind}
+time <- seq(from = 0,
+            to = SWdata$Elapsed_time_hr[length(SWdata$Elapsed_time_hr)-2],
+            by = 1)
+water_init_g <- rep(0,length(time))
+evap_loss <- rep(0,length(time))
+sum_water_loss_g <- rep(0,length(time))
+
+for (ii in 1:(length(SWdata$Elapsed_time_hr)-3)) {
+  timestart <- as.numeric(which(time == SWdata$Elapsed_time_hr[ii])[1])
+  timestop <- as.numeric(which(time == SWdata$Elapsed_time_hr[ii+1])[1])
+  evap_loss[timestart:(timestop-1)] <- mean(c(SWdata$Evap_mass_loss_g_SW1[ii+1],SWdata$Evap_mass_loss_g_SW2[ii+1]))/(SWdata$Elapsed_time_hr[ii+1] - SWdata$Elapsed_time_hr[ii])
+}
+
+evap_loss[0] <- 0
+evap_loss[length(evap_loss)] <- evap_loss[(length(evap_loss)-1)]
+
+for (jj in 2:(length(SWdata$Elapsed_time_hr)-2)) {
+  index <- as.numeric(which(time == SWdata$Elapsed_time_hr[jj])) - 1
+  evap_loss[index] <- mean(c(evap_loss[index-1],evap_loss[index+1]))
+}
+
+water_init_g[1] <- mean(c(SWdata$Solution_mass_final_g_SW1[1],SWdata$Solution_mass_final_g_SW2[1]))
+
+avg_sampling_loss <- mean(c(SWdata$Sampling_mass_loss_g_SW1,SWdata$Sampling_mass_loss_g_SW2))
+
+counter <- 2
+
+for (hh in 2:length(time)) {
+  if (time[hh] == SWdata$Elapsed_time_hr[counter]) {
+    water_init_g[hh] <- water_init_g[hh-1] - evap_loss[hh] - avg_sampling_loss
+    counter <- counter + 1
+  } else {
+    water_init_g[hh] <- water_init_g[hh-1] - evap_loss[hh]
+  }
+}
+
+sum_water_loss_g[2] <- evap_loss[2]
+
+for (nn in 3:length(time)) {
+  sum_water_loss_g[nn] <- sum_water_loss_g[nn-1] + evap_loss[nn]
+}
+
+evap_model <- data.frame(time,water_init_g,evap_loss,sum_water_loss_g)
+evap_model <- rename(evap_model,
+                     "water_loss_g" = "evap_loss",
+                     "elapsed_time" = "time")
+
+evap_model$Ca_mmol_kg[1] <- SWdata$Ca_mmol_kg[2]
+evap_model$K_mmol_kg[1] <- SWdata$K_mmol_kg[1]
+evap_model$Mg_mmol_kg[1] <- SWdata$Mg_mmol_kg[2]
+evap_model$Na_mmol_kg[1] <- SWdata$Na_mmol_kg[1]
+evap_model$Cl_mmol_kg[1] <- SWdata$Cl_mmol_kg[1]
+evap_model$SO4_mmol_kg[1] <- SWdata$SO4_mmol_kg[1]
+evap_model$salinity[1] <- SWdata$salinity[1]
+evap_model$Alk_mmol_kg[1] <- SWdata$undiluted_Alk_mmol_kg[2]
+evap_model$pH[1] <- SWdata$pH_mean[2]
+evap_model$DIC_mmol_kg[1] <- SWdata$DIC_mmol_kg[2]
+evap_model$pCO2[1] <- SWdata$pCO2[2]
+evap_model$Omega_ar[1] <- SWdata$Omega_ar[2]
+evap_model$Omega_cc[1] <- SWdata$Omega_cc[2]
+evap_model$Omega_gy[1] <- SWdata$Omega_gy[1]
+
+beaker_diam <- 4.25 #{inches}
+beaker_diam <- beaker_diam*0.0254 #{m}
+beaker_SA <- pi*(beaker_diam/2)^2 #{m^2}
+
+for (n in 2:length(evap_model$elapsed_time)) {
+  output <- evapoRate(tempC = tempC,
+                      P_atm = P_atm_Boulder,
+                      xCO2 = 550,
+                      water_initial_mass = evap_model$water_init_g[n-1]/1000,
+                      water_removed_mass = evap_model$water_loss_g[n]/1000,
+                      Na_i = evap_model$Na_mmol_kg[n-1],
+                      Mg_i = evap_model$Mg_mmol_kg[n-1],
+                      Ca_i = evap_model$Ca_mmol_kg[n-1],
+                      K_i = evap_model$K_mmol_kg[n-1],
+                      Cl_i = evap_model$Cl_mmol_kg[n-1],
+                      SO4_i = evap_model$SO4_mmol_kg[n-1],
+                      Alk_i = evap_model$Alk_mmol_kg[n-1],
+                      DIC_i = evap_model$DIC_mmol_kg[n-1],
+                      gas_exchange_mode = "wind",
+                      u_wind = 5,
+                      surface_area = beaker_SA,
+                      timestep = diff(evap_model$elapsed_time)[n-1]
+                      )
+  
+  evap_model$Na_mmol_kg[n] <- output$Na_mmol_kg
+  evap_model$Mg_mmol_kg[n] <- output$Mg_mmol_kg
+  evap_model$Ca_mmol_kg[n] <- output$Ca_mmol_kg
+  evap_model$K_mmol_kg[n] <- output$K_mmol_kg
+  evap_model$Cl_mmol_kg[n] <- output$Cl_mmol_kg
+  evap_model$SO4_mmol_kg[n] <- output$SO4_mmol_kg
+  evap_model$salinity[n] <- output$salinity
+  evap_model$Alk_mmol_kg[n] <- output$Alk_mmol_kg
+  evap_model$DIC_mmol_kg[n] <- output$DIC_mmol_kg
+  evap_model$pCO2[n] <- output$pCO2
+  evap_model$pH[n] <- output$pH
+  evap_model$Omega_ar[n] <- output$Omega_ar
+  evap_model$Omega_cc[n] <- output$Omega_cc
+  evap_model$Omega_gy[n] <- output$Omega_gy
+}
+evap_model_wind <- evap_model
+
+SWobs <- select(SWdata[1:16,],c(Elapsed_time_hr,Ca_mmol_kg,K_mmol_kg,Mg_mmol_kg,Na_mmol_kg,Cl_mmol_kg,SO4_mmol_kg,Omega_ar,Omega_gy,DIC_mmol_kg,pCO2,undiluted_Alk_mmol_kg,pH_mean))
+SWobs <- rename(SWobs,
+                "Alk_mmol_kg" = "undiluted_Alk_mmol_kg",
+                "elapsed_time" = "Elapsed_time_hr",
+                "pH" = "pH_mean")
+SWobs$group <- "observations"
+
+evap_model$group <- "model"
+
+suppressMessages({
+  plotdata <- full_join(SWobs,evap_model)
+})
+
+plotdata <- pivot_longer(plotdata,cols = c("DIC_mmol_kg",
+                                           "Alk_mmol_kg",
+                                           "Omega_ar",
+                                           "Omega_gy",
+                                           "pH",
+                                           "pCO2",
+                                           "Ca_mmol_kg",
+                                           "Mg_mmol_kg",
+                                           "Na_mmol_kg",
+                                           "K_mmol_kg",
+                                           "Cl_mmol_kg",
+                                           "SO4_mmol_kg"),
+                            names_to = "parameter",
+                            values_to = "value")
+
+plotdata <- mutate(plotdata,
+                      parameter = factor(parameter,
+                                         levels = c("Na_mmol_kg",
+                                                    "Mg_mmol_kg",
+                                                    "Ca_mmol_kg",
+                                                    "K_mmol_kg",
+                                                    "Cl_mmol_kg",
+                                                    "SO4_mmol_kg",
+                                                    "Alk_mmol_kg",
+                                                    "DIC_mmol_kg",
+                                                    "Omega_ar",
+                                                    "pH",
+                                                    "pCO2",
+                                                    "Omega_gy"),
+                                         labels = c("[Na] (mmol/kg)",
+                                                    "[Mg] (mmol/kg)",
+                                                    "[Ca] (mmol/kg)",
+                                                    "[K] (mmol/kg)",
+                                                    "[Cl] (mmol/kg)",
+                                                    "[SO\u2084] (mmol/kg)",
+                                                    "Alk (mequiv/kg)",
+                                                    "DIC (mmol/kg)",
+                                                    "aragonite \u03a9",
+                                                    "pH",
+                                                    "pCO\u2082 (\u03bcatm)",
+                                                    "gypsum \u03a9"),
+                                         ordered = TRUE))
+
+ggplot(data = plotdata,
+       mapping = aes(x = elapsed_time,
+                     y = value,
+                     color = parameter)) +
+  geom_point(data = ~subset(., group == "observations"),
+             size = 3) + 
+  geom_line(data = ~subset(., group == "model")) +
+  facet_wrap(~parameter,
+             ncol = 3,
+             scales = "free_y") +
+  scale_color_manual(
+    values=lacroix_palette(
+      "PassionFruit", 
+      type = "continuous",
+      n = 12)) +
+  ylab(NULL) +
+  xlab("elapsed time (hr)") +
+  theme_light() +
+  theme(legend.position = "none") -> plot_wind
+
+plot(plot_wind)
+```
+
+The wind mode is a poor fit to these experimental data because the experiment was not conducted outside, and the wind velocity used in this example (5 m/s) is significantly faster than the indoor air velocity (0.2 m/s) used in the solid wall example.
+
+# Carbon isotope predictions
+
+It is also useful to predict how the carbon isotope ratios of the dissolved inorganic carbon (𝛿^13^C~DIC~) in the solution change as a result of CO~2~ exchange during evaporation.
+
+## Example 5: 𝝳^13^C tracking
+
+The seawater evaporation experiment dataset shown in the previous examples also includes 𝛿^13^C~DIC~ values that we can use to show how this mode works. This dataset is characterized by CO~2~ invasion for the first \~half of the experiment and CO~2~ degassing for the second \~half of the experiment; we expect different behavior for these two processes. The change in 𝛿^13^C~DIC~ values during CO~2~ invasion is represented by the mass balance of the pre-existing \[DIC\] and its 𝛿^13^C~DIC~ value and the DIC added and its 𝛿^13^C~DIC~ value, which has a set fractionation (𝜀~g-DIC~) relative to the 𝛿^13^C~DIC~ value of atmospheric CO~2~. Although, in theory, CO2 degassing could be represented in an analogous way, our experimental data are not well-represented by this approach. Instead, evapoRate uses a Rayleigh distillation model to describe the evolution of 𝛿^13^C~DIC~ values during CO~2~ degassing associated with evaporation, following @stiller1985. Since evapoRate is designed to be run one timestep at a time, the model does not independently know how long the Rayleigh distillation process has been occurring for. The code below demonstrates an example of how to use the F~gas~ output to drive the desired model behavior.
+
+```{r d13C-example}
+time <- seq(from = 0,
+            to = SWdata$Elapsed_time_hr[length(SWdata$Elapsed_time_hr)-2],
+            by = 1)
+water_init_g <- rep(0,length(time))
+evap_loss <- rep(0,length(time))
+sum_water_loss_g <- rep(0,length(time))
+
+for (ii in 1:(length(SWdata$Elapsed_time_hr)-3)) {
+  timestart <- as.numeric(which(time == SWdata$Elapsed_time_hr[ii])[1])
+  timestop <- as.numeric(which(time == SWdata$Elapsed_time_hr[ii+1])[1])
+  evap_loss[timestart:(timestop-1)] <- mean(c(SWdata$Evap_mass_loss_g_SW1[ii+1],SWdata$Evap_mass_loss_g_SW2[ii+1]))/(SWdata$Elapsed_time_hr[ii+1] - SWdata$Elapsed_time_hr[ii])
+}
+
+evap_loss[0] <- 0
+evap_loss[length(evap_loss)] <- evap_loss[(length(evap_loss)-1)]
+
+for (jj in 2:(length(SWdata$Elapsed_time_hr)-2)) {
+  index <- as.numeric(which(time == SWdata$Elapsed_time_hr[jj])) - 1
+  evap_loss[index] <- mean(c(evap_loss[index-1],evap_loss[index+1]))
+}
+
+water_init_g[1] <- mean(c(SWdata$Solution_mass_final_g_SW1[1],SWdata$Solution_mass_final_g_SW2[1]))
+
+avg_sampling_loss <- mean(c(SWdata$Sampling_mass_loss_g_SW1,SWdata$Sampling_mass_loss_g_SW2))
+
+counter <- 2
+
+for (hh in 2:length(time)) {
+  if (time[hh] == SWdata$Elapsed_time_hr[counter]) {
+    water_init_g[hh] <- water_init_g[hh-1] - evap_loss[hh] - avg_sampling_loss
+    counter <- counter + 1
+  } else {
+    water_init_g[hh] <- water_init_g[hh-1] - evap_loss[hh]
+  }
+}
+
+sum_water_loss_g[2] <- evap_loss[2]
+
+for (nn in 3:length(time)) {
+  sum_water_loss_g[nn] <- sum_water_loss_g[nn-1] + evap_loss[nn]
+}
+
+evap_model <- data.frame(time,water_init_g,evap_loss,sum_water_loss_g)
+evap_model <- rename(evap_model,
+                     "water_loss_g" = "evap_loss",
+                     "elapsed_time" = "time")
+
+evap_model$Ca_mmol_kg[1] <- SWdata$Ca_mmol_kg[2]
+evap_model$K_mmol_kg[1] <- SWdata$K_mmol_kg[1]
+evap_model$Mg_mmol_kg[1] <- SWdata$Mg_mmol_kg[2]
+evap_model$Na_mmol_kg[1] <- SWdata$Na_mmol_kg[1]
+evap_model$Cl_mmol_kg[1] <- SWdata$Cl_mmol_kg[1]
+evap_model$SO4_mmol_kg[1] <- SWdata$SO4_mmol_kg[1]
+evap_model$salinity[1] <- SWdata$salinity[1]
+evap_model$Alk_mmol_kg[1] <- SWdata$undiluted_Alk_mmol_kg[2]
+evap_model$pH[1] <- SWdata$pH_mean[2]
+evap_model$DIC_mmol_kg[1] <- SWdata$DIC_mmol_kg[2]
+evap_model$pCO2[1] <- SWdata$pCO2[2]
+evap_model$Omega_ar[1] <- SWdata$Omega_ar[2]
+evap_model$Omega_cc[1] <- SWdata$Omega_cc[2]
+evap_model$Omega_gy[1] <- SWdata$Omega_gy[1]
+evap_model$d13C_DIC[1] <- mean(c(SWdata$d13C_DIC_SW1[1],SWdata$d13C_DIC_SW2[1]))
+evap_model$Fgas[1] <- 0
+
+beaker_diam <- 4.25 #{inches}
+beaker_diam <- beaker_diam*0.0254 #{m}
+beaker_SA <- pi*(beaker_diam/2)^2 #{m^2}
+
+counter <- 1
+f_remaining <- 1
+
+for (n in 2:length(evap_model$elapsed_time)) {
+  
+  if (evap_model$Fgas[n-1] <= 0) {
+    counter <- counter + 1
+    d13C_DIC_i_Rayleigh <- NA
+  } else if (evap_model$Fgas[n-1] > 0) {
+    d13C_DIC_i_Rayleigh <- evap_model$d13C_DIC[counter-1]
+    if (counter == n) {
+      f_remaining = 1
+    } else {
+      H2O_i <- evap_model$water_init_g[counter]
+      H2O_remaining <- H2O_i - sum(evap_model$water_loss_g[counter:n])
+      f_remaining <- H2O_remaining/H2O_i
+    }
+  }
+  
+  output <- evapoRate(tempC = tempC,
+                      P_atm = P_atm_Boulder,
+                      xCO2 = 550,
+                      water_initial_mass = evap_model$water_init_g[n-1]/1000,
+                      water_removed_mass = evap_model$water_loss_g[n]/1000,
+                      Na_i = evap_model$Na_mmol_kg[n-1],
+                      Mg_i = evap_model$Mg_mmol_kg[n-1],
+                      Ca_i = evap_model$Ca_mmol_kg[n-1],
+                      K_i = evap_model$K_mmol_kg[n-1],
+                      Cl_i = evap_model$Cl_mmol_kg[n-1],
+                      SO4_i = evap_model$SO4_mmol_kg[n-1],
+                      Alk_i = evap_model$Alk_mmol_kg[n-1],
+                      DIC_i = evap_model$DIC_mmol_kg[n-1],
+                      gas_exchange_mode = "solid_wall",
+                      rho_air = 0.984,
+                      u_air = 0.2,
+                      surface_length = beaker_diam,
+                      surface_area = beaker_SA,
+                      alpha_exchange = 8,
+                      timestep = diff(evap_model$elapsed_time)[n-1],
+                      d13C_tracking = "yes",
+                      d13C_DIC_i_invasion = evap_model$d13C_DIC[n-1],
+                      d13C_DIC_i_Rayleigh = d13C_DIC_i_Rayleigh,
+                      eps_g_DIC = -10,
+                      alpha_DIC_g = 0.985,
+                      f_remaining = f_remaining
+  )
+  
+  evap_model$Na_mmol_kg[n] <- output$Na_mmol_kg
+  evap_model$Mg_mmol_kg[n] <- output$Mg_mmol_kg
+  evap_model$Ca_mmol_kg[n] <- output$Ca_mmol_kg
+  evap_model$K_mmol_kg[n] <- output$K_mmol_kg
+  evap_model$Cl_mmol_kg[n] <- output$Cl_mmol_kg
+  evap_model$SO4_mmol_kg[n] <- output$SO4_mmol_kg
+  evap_model$salinity[n] <- output$salinity
+  evap_model$Alk_mmol_kg[n] <- output$Alk_mmol_kg
+  evap_model$DIC_mmol_kg[n] <- output$DIC_mmol_kg
+  evap_model$pCO2[n] <- output$pCO2
+  evap_model$pH[n] <- output$pH
+  evap_model$Omega_ar[n] <- output$Omega_ar
+  evap_model$Omega_cc[n] <- output$Omega_cc
+  evap_model$Omega_gy[n] <- output$Omega_gy
+  evap_model$Fgas[n] <- output$Fgas
+  evap_model$d13C_DIC[n] <- output$d13C_DIC
+}
+evap_model_d13C_example <- evap_model
+
+SWobs <- select(SWdata[1:16,],c(Elapsed_time_hr,Ca_mmol_kg,K_mmol_kg,Mg_mmol_kg,Na_mmol_kg,Cl_mmol_kg,SO4_mmol_kg,Omega_ar,Omega_gy,DIC_mmol_kg,pCO2,undiluted_Alk_mmol_kg,pH_mean,d13C_DIC_SW1,d13C_DIC_SW2))
+SWobs <- rename(SWobs,
+                "Alk_mmol_kg" = "undiluted_Alk_mmol_kg",
+                "elapsed_time" = "Elapsed_time_hr",
+                "pH" = "pH_mean")
+SWobs$group <- "observations"
+SWobs <- pivot_longer(SWobs,cols = c("d13C_DIC_SW1",
+                                     "d13C_DIC_SW2"),
+                      names_to = "beaker",
+                      values_to = "d13C_DIC")
+
+evap_model$group <- "model"
+
+suppressMessages({
+  plotdata <- full_join(SWobs,evap_model)
+})
+
+plotdata <- pivot_longer(plotdata,cols = c("DIC_mmol_kg",
+                                           "Alk_mmol_kg",
+                                           "Omega_ar",
+                                           "pH",
+                                           "pCO2",
+                                           "Ca_mmol_kg",
+                                           "Mg_mmol_kg",
+                                           "Na_mmol_kg",
+                                           "K_mmol_kg",
+                                           "Cl_mmol_kg",
+                                           "SO4_mmol_kg",
+                                           "d13C_DIC"),
+                            names_to = "parameter",
+                            values_to = "value")
+
+plotdata <- mutate(plotdata,
+                      parameter = factor(parameter,
+                                         levels = c("Na_mmol_kg",
+                                                    "Mg_mmol_kg",
+                                                    "Ca_mmol_kg",
+                                                    "K_mmol_kg",
+                                                    "Cl_mmol_kg",
+                                                    "SO4_mmol_kg",
+                                                    "Alk_mmol_kg",
+                                                    "DIC_mmol_kg",
+                                                    "Omega_ar",
+                                                    "pH",
+                                                    "pCO2",
+                                                    "d13C_DIC"),
+                                         labels = c("[Na] (mmol/kg)",
+                                                    "[Mg] (mmol/kg)",
+                                                    "[Ca] (mmol/kg)",
+                                                    "[K] (mmol/kg)",
+                                                    "[Cl] (mmol/kg)",
+                                                    "[SO\u2084] (mmol/kg)",
+                                                    "Alk (mequiv/kg)",
+                                                    "DIC (mmol/kg)",
+                                                    "aragonite \u03a9",
+                                                    "pH",
+                                                    "pCO\u2082 (\u03bcatm)",
+                                                    "DIC \u03b4\u00b9\u00b3C (‰)"),
+                                         ordered = TRUE))
+
+ggplot(data = plotdata,
+       mapping = aes(x = elapsed_time,
+                     y = value,
+                     color = parameter)) +
+  geom_point(data = ~subset(., group == "observations"),
+             size = 3) + 
+  geom_line(data = ~subset(., group == "model")) +
+  facet_wrap(~parameter,
+             ncol = 3,
+             scales = "free_y") +
+  scale_color_manual(
+    values=lacroix_palette(
+      "PassionFruit", 
+      type = "continuous",
+      n = 12)) +
+  ylab(NULL) +
+  xlab("elapsed time (hr)") +
+  theme_light() +
+  theme(legend.position = "none") -> plot_d13C_example
+
+suppressWarnings(plot(plot_d13C_example))
+```
+
+As you can see from the plots, the model captures the change in behavior in 𝛿^13^C~DIC~ values in our experimental data - decreasing 𝛿^13^C~DIC~ values during CO~2~ invasion and increasing 𝛿^13^C~DIC~ values during CO~2~ degassing.
+
+# Carbonate precipitation
+
+In addition to CO~2~ gas exchange, CaCO~3~ precipitation is another important process that impacts the evolving carbonate chemistry of a solution as it evaporates. For these examples, we use the Jordan River datasets because these experiments captured CaCO~3~ precipitation.
+
+## Example 6: no CaCO~3~ precipitation
+
+First, we'll run the model for these data with CO~2~ gas exchange but no CaCO~3~ precipitation to show how the model diverges from the experiment dataset when we do not account for precipitation.
+
+```{r no-CaCO3-precip}
+time <- seq(from = 0,
+            to = max(JR1data$Elapsed_time_hr[2:length(JR1data$Elapsed_time_hr)]),
+            by = 1)
+water_init_g <- rep(0,length(time))
+
+for (ii in 2:(length(JR1data$Elapsed_time_hr)-1)) {
+  timestart <- as.numeric(which(time == JR1data$Elapsed_time_hr[ii])[1])
+  timestop <- as.numeric(which(time == JR1data$Elapsed_time_hr[ii+1])[1])
+  water_interp <- approx(x = c(JR1data$Elapsed_time_hr[ii],JR1data$Elapsed_time_hr[ii+1]),
+                         y = c(JR1data$Solution_mass_final_g[ii],JR1data$Solution_mass_initial_g[ii+1]),
+                         xout = time[timestart:timestop],
+                         rule = 2,
+                         method = "linear",
+                         ties = mean)
+  suppressWarnings(water_init_g[timestart:timestop-1] <- water_interp$y)
+}
+
+water_init_g[length(time)] <- JR1data$Solution_mass_final_g[length(JR1data$Solution_mass_final_g)]
+
+evap_loss <- diff(water_init_g)
+evap_loss <- c(0,evap_loss)
+evap_loss <- -evap_loss
+
+for (jj in 2:(length(JR1data$Elapsed_time_hr)-1)) {
+  index <- as.numeric(which(time == JR1data$Elapsed_time_hr[jj])) - 1
+  evap_loss[index] <- mean(c(evap_loss[index-1],evap_loss[index+1]))
+}
+evap_loss[length(evap_loss)] <- evap_loss[length(evap_loss)-1]
+
+evap_model <- data.frame(time,water_init_g,evap_loss)
+evap_model <- rename(evap_model,
+                     "water_loss_g" = "evap_loss",
+                     "elapsed_time" = "time")
+
+evap_model$Ca_mmol_kg[1] <- mean(c(JR1data$Ca_mmol_kg[2],JR2data$Ca_mmol_kg[2]))
+evap_model$K_mmol_kg[1] <- mean(c(JR1data$K_mmol_kg[2],JR2data$K_mmol_kg[2]))
+evap_model$Mg_mmol_kg[1] <- mean(c(JR1data$Mg_mmol_kg[2],JR2data$Mg_mmol_kg[2]))
+evap_model$Na_mmol_kg[1] <- mean(c(JR1data$Na_mmol_kg[2],JR2data$Na_mmol_kg[2]))
+evap_model$Cl_mmol_kg[1] <- mean(c(JR1data$Cl_mmol_kg[2],JR2data$Cl_mmol_kg[2]))
+evap_model$SO4_mmol_kg[1] <- mean(c(JR1data$SO4_mmol_kg[2],JR2data$SO4_mmol_kg[2]))
+evap_model$Alk_mmol_kg[1] <- mean(c(JR1data$undiluted_Alk_mmol_kg[2],JR2data$undiluted_Alk_mmol_kg[2]))
+evap_model$pH[1] <- mean(c(JR1data$pH[2],JR2data$pH[2]))
+evap_model$DIC_mmol_kg[1] <- mean(c(JR1data$DIC_mmol_kg[2],JR2data$DIC_mmol_kg[2]))
+evap_model$pCO2[1] <- mean(c(JR1data$pCO2[2],JR2data$pCO2[2]))
+evap_model$Omega_ar[1] <- mean(c(JR1data$Omega_ar[2],JR2data$Omega_ar[2]))
+evap_model$Omega_cc[1] <- mean(c(JR1data$Omega_cc[2],JR2data$Omega_cc[2]))
+evap_model$Omega_gy[1] <- mean(c(JR1data$Omega_gy[2],JR2data$Omega_gy[2]))
+evap_model$salinity[1] <- mean(c(JR1data$salinity[2],JR2data$salinity[2]))
+
+beaker_diam <- 4.25 #{inches}
+beaker_diam <- beaker_diam*0.0254 #{m}
+beaker_SA <- pi*(beaker_diam/2)^2 #{m^2}
+
+for (n in 2:length(evap_model$elapsed_time)) {
+  output <- evapoRate(tempC = tempC,
+                      P_atm = P_atm_Boulder,
+                      xCO2 = 420,
+                      water_initial_mass = evap_model$water_init_g[n-1]/1000,
+                      water_removed_mass = evap_model$water_loss_g[n]/1000,
+                      Na_i = evap_model$Na_mmol_kg[n-1],
+                      Mg_i = evap_model$Mg_mmol_kg[n-1],
+                      Ca_i = evap_model$Ca_mmol_kg[n-1],
+                      K_i = evap_model$K_mmol_kg[n-1],
+                      Cl_i = evap_model$Cl_mmol_kg[n-1],
+                      SO4_i = evap_model$SO4_mmol_kg[n-1],
+                      Alk_i = evap_model$Alk_mmol_kg[n-1],
+                      DIC_i = evap_model$DIC_mmol_kg[n-1],
+                      gas_exchange_mode = "solid_wall",
+                      rho_air = 0.984,
+                      u_air = 0.2,
+                      surface_length = beaker_diam,
+                      surface_area = beaker_SA,
+                      alpha_exchange = 8,
+                      timestep = diff(evap_model$elapsed_time)[n-1]
+                      )
+  
+  evap_model$Na_mmol_kg[n] <- output$Na_mmol_kg
+  evap_model$Mg_mmol_kg[n] <- output$Mg_mmol_kg
+  evap_model$Ca_mmol_kg[n] <- output$Ca_mmol_kg
+  evap_model$K_mmol_kg[n] <- output$K_mmol_kg
+  evap_model$Cl_mmol_kg[n] <- output$Cl_mmol_kg
+  evap_model$SO4_mmol_kg[n] <- output$SO4_mmol_kg
+  evap_model$salinity[n] <- output$salinity
+  evap_model$Alk_mmol_kg[n] <- output$Alk_mmol_kg
+  evap_model$DIC_mmol_kg[n] <- output$DIC_mmol_kg
+  evap_model$pCO2[n] <- output$pCO2
+  evap_model$pH[n] <- output$pH
+  evap_model$Omega_ar[n] <- output$Omega_ar
+  evap_model$Omega_cc[n] <- output$Omega_cc
+  evap_model$Omega_gy[n] <- output$Omega_gy
+}
+evap_model_no_precip <- evap_model
+
+JR1obs <- select(JR1data,c(Elapsed_time_hr,Ca_mmol_kg,K_mmol_kg,Mg_mmol_kg,Na_mmol_kg,Cl_mmol_kg,SO4_mmol_kg,Omega_ar,Omega_cc,Omega_gy,DIC_mmol_kg,pCO2,undiluted_Alk_mmol_kg,pH))
+JR1obs <- rename(JR1obs,
+                 "Alk_mmol_kg" = "undiluted_Alk_mmol_kg",
+                 "elapsed_time" = "Elapsed_time_hr")
+JR1obs$group <- "observations"
+JR1obs$sample <- "JR1"
+
+JR2obs <- select(JR2data,c(Elapsed_time_hr,Ca_mmol_kg,K_mmol_kg,Mg_mmol_kg,Na_mmol_kg,Cl_mmol_kg,SO4_mmol_kg,Omega_ar,Omega_cc,Omega_gy,DIC_mmol_kg,pCO2,undiluted_Alk_mmol_kg,pH))
+JR2obs <- rename(JR2obs,
+                 "Alk_mmol_kg" = "undiluted_Alk_mmol_kg",
+                 "elapsed_time" = "Elapsed_time_hr")
+JR2obs$group <- "observations"
+JR2obs$sample <- "JR2"
+
+suppressMessages({
+  obsdata <- full_join(JR1obs,JR2obs)
+})
+
+evap_model$group <- "model"
+
+suppressMessages({
+  plotdata <- full_join(obsdata,evap_model)
+})
+
+plotdata <- pivot_longer(plotdata,cols = c("DIC_mmol_kg",
+                                           "Alk_mmol_kg",
+                                           "Omega_ar",
+                                           "Omega_gy",
+                                           "pH",
+                                           "pCO2",
+                                           "Ca_mmol_kg",
+                                           "Mg_mmol_kg",
+                                           "Na_mmol_kg",
+                                           "K_mmol_kg",
+                                           "Cl_mmol_kg",
+                                           "SO4_mmol_kg"),
+                            names_to = "parameter",
+                            values_to = "value")
+
+plotdata <- mutate(plotdata,
+                      parameter = factor(parameter,
+                                         levels = c("Na_mmol_kg",
+                                                    "Mg_mmol_kg",
+                                                    "Ca_mmol_kg",
+                                                    "K_mmol_kg",
+                                                    "Cl_mmol_kg",
+                                                    "SO4_mmol_kg",
+                                                    "Alk_mmol_kg",
+                                                    "DIC_mmol_kg",
+                                                    "Omega_ar",
+                                                    "pH",
+                                                    "pCO2",
+                                                    "Omega_gy"),
+                                         labels = c("[Na] (mmol/kg)",
+                                                    "[Mg] (mmol/kg)",
+                                                    "[Ca] (mmol/kg)",
+                                                    "[K] (mmol/kg)",
+                                                    "[Cl] (mmol/kg)",
+                                                    "[SO\u2084] (mmol/kg)",
+                                                    "Alk (mequiv/kg)",
+                                                    "DIC (mmol/kg)",
+                                                    "aragonite \u03a9",
+                                                    "pH",
+                                                    "pCO\u2082 (\u03bcatm)",
+                                                    "gypsum \u03a9"),
+                                         ordered = TRUE))
+
+ggplot(data = plotdata,
+       mapping = aes(x = elapsed_time,
+                     y = value,
+                     color = parameter)) +
+  geom_point(data = ~subset(., group == "observations"),
+             mapping = aes(shape = factor(sample)),
+             size = 3) + 
+  geom_line(data = ~subset(., group == "model")) +
+  facet_wrap(~parameter,
+             ncol = 3,
+             scales = "free_y") +
+  scale_color_manual(
+    values=lacroix_palette(
+      "PassionFruit", 
+      type = "continuous",
+      n = 12)) +
+  ylab(NULL) +
+  xlab("elapsed time (hr)") +
+  theme_light() +
+  theme(legend.position = "none") -> plot_no_precip
+
+suppressWarnings(plot(plot_no_precip))
+```
+
+As you can see from the plots, the model matches the data well until \~475 hrs, at which point the model results for \[Ca\], alkalinity, \[DIC\], aragonite 𝛺, pH, pCO~2~, and gypsum 𝛺 all diverge from the experiments. This shift is marked first by a sharp decline in pH associated with a rapid increase in pCO~2~, followed by a slowly increasing pH and decreasing pCO~2~. The experiments have notably less Ca, alkalinity, and DIC than the model results, consistent with what we would expect as the result of CaCO~3~ precipitation.
+
+## Example 7: whiting + heterogeneous nucleation
+
+Here, we show an example of how evapoRate can be used to more accurately predict the changes in solution chemistry associated with CaCO~3~ precipitation in these experiments. There are many possible ways to represent CaCO~3~ precipitation rate in the model - it could be (pseudo-)homogeneous nucleation once the supersaturation of calcite or aragonite passes a particular threshold, or it could be heterogeneous nucleation on existing surfaces, where the rate of precipitation is a function of the degree of supersaturation. For this reason, evapoRate is not designed to calculate CaCO~3~ precipitation rate; instead, the user calculates a CaCO~3~ precipitation rate in a way that is appropriate for their use-case and provides that rate to evapoRate, along with the expected stoichiometry of the reaction (i.e., the ratio of alkalinity consumed per mole of CaCO~3~ precipitated, and the stoichiometry of Ca and Mg in the carbonate mineral, which can, for example, be used to represent precipitation of high-Mg calcite).
+
+This example shows two ways to calculate these parameters, based on our interpretation that the experiment represent an initial whiting (pseudo-homogeneous nucleation) event, followed by heterogeneous nucleation on the surfaces produced during the whiting. In both cases, we uses different parameterizations to calculate CaCO~3~ precipitation rates outside of evapoRate. Note that evapoRate is not currently enabled to track carbon isotope changes when CaCO~3~ precipitation is occurring, but this capability may be added in the future.
+
+```{r CaCO3-precip}
+time <- seq(from = 0,
+            to = max(JR1data$Elapsed_time_hr[2:length(JR1data$Elapsed_time_hr)]),
+            by = 1)
+water_init_g <- rep(0,length(time))
+
+for (ii in 2:(length(JR1data$Elapsed_time_hr)-1)) {
+  timestart <- as.numeric(which(time == JR1data$Elapsed_time_hr[ii])[1])
+  timestop <- as.numeric(which(time == JR1data$Elapsed_time_hr[ii+1])[1])
+  water_interp <- approx(x = c(JR1data$Elapsed_time_hr[ii],JR1data$Elapsed_time_hr[ii+1]),
+                         y = c(JR1data$Solution_mass_final_g[ii],JR1data$Solution_mass_initial_g[ii+1]),
+                         xout = time[timestart:timestop],
+                         rule = 2,
+                         method = "linear",
+                         ties = mean)
+  suppressWarnings(water_init_g[timestart:timestop-1] <- water_interp$y)
+}
+
+water_init_g[length(time)] <- JR1data$Solution_mass_final_g[length(JR1data$Solution_mass_final_g)]
+
+evap_loss <- diff(water_init_g)
+evap_loss <- c(0,evap_loss)
+evap_loss <- -evap_loss
+
+for (jj in 2:(length(JR1data$Elapsed_time_hr)-1)) {
+  index <- as.numeric(which(time == JR1data$Elapsed_time_hr[jj])) - 1
+  evap_loss[index] <- mean(c(evap_loss[index-1],evap_loss[index+1]))
+}
+evap_loss[length(evap_loss)] <- evap_loss[length(evap_loss)-1]
+
+evap_model <- data.frame(time,water_init_g,evap_loss)
+evap_model <- rename(evap_model,
+                     "water_loss_g" = "evap_loss",
+                     "elapsed_time" = "time")
+
+evap_model$Ca_mmol_kg[1] <- mean(c(JR1data$Ca_mmol_kg[2],JR2data$Ca_mmol_kg[2]))
+evap_model$K_mmol_kg[1] <- mean(c(JR1data$K_mmol_kg[2],JR2data$K_mmol_kg[2]))
+evap_model$Mg_mmol_kg[1] <- mean(c(JR1data$Mg_mmol_kg[2],JR2data$Mg_mmol_kg[2]))
+evap_model$Na_mmol_kg[1] <- mean(c(JR1data$Na_mmol_kg[2],JR2data$Na_mmol_kg[2]))
+evap_model$Cl_mmol_kg[1] <- mean(c(JR1data$Cl_mmol_kg[2],JR2data$Cl_mmol_kg[2]))
+evap_model$SO4_mmol_kg[1] <- mean(c(JR1data$SO4_mmol_kg[2],JR2data$SO4_mmol_kg[2]))
+evap_model$Alk_mmol_kg[1] <- mean(c(JR1data$undiluted_Alk_mmol_kg[2],JR2data$undiluted_Alk_mmol_kg[2]))
+evap_model$pH[1] <- mean(c(JR1data$pH[2],JR2data$pH[2]))
+evap_model$DIC_mmol_kg[1] <- mean(c(JR1data$DIC_mmol_kg[2],JR2data$DIC_mmol_kg[2]))
+evap_model$pCO2[1] <- mean(c(JR1data$pCO2[2],JR2data$pCO2[2]))
+evap_model$Omega_ar[1] <- mean(c(JR1data$Omega_ar[2],JR2data$Omega_ar[2]))
+evap_model$Omega_cc[1] <- mean(c(JR1data$Omega_cc[2],JR2data$Omega_cc[2]))
+evap_model$Omega_gy[1] <- mean(c(JR1data$Omega_gy[2],JR2data$Omega_gy[2]))
+evap_model$salinity[1] <- mean(c(JR1data$salinity[2],JR2data$salinity[2]))
+
+beaker_diam <- 4.25 #{inches}
+beaker_diam <- beaker_diam*0.0254 #{m}
+beaker_SA <- pi*(beaker_diam/2)^2 #{m^2}
+
+#variables related to aragonite precipitation
+Omega_threshold <- 15
+n_whiting_total <- 18
+precipkin <- aragonitekinetics(tempC,
+                               reference = "Romanek")
+n_whiting <- 0
+SA_total <- 0
+
+for (n in 2:length(evap_model$elapsed_time)) {
+  
+  if (is_empty(which(evap_model$Omega_ar[1:n-1] > Omega_threshold)) == TRUE) {
+  Fcarb_mol_kg <- 0
+  Alk_Ca_carb <- NA
+  alpha_exchange <- 8
+  } else if (length(which(evap_model$Omega_ar[1:n-1] > Omega_threshold)) == 1 && n_whiting < n_whiting_total) {
+    N_nuclei_vol <- 1.3*10^11 #{nuclei per m^3}
+    dens <- fluiddensity_TS(tempC = tempC,
+                            sal = evap_model$salinity[n-1],
+                            range = "high")
+    N_nuclei_kg <- N_nuclei_vol/dens #{nuclei per kg}
+    M_nuc <- N_nuclei_kg*2800*2*10^-6*(pi*(0.25*10^-6)^2) #{kg/kg}
+    M_nuc_abs <- M_nuc*evap_model$water_init_g[n-1]/1000 #{kg}
+    SSA <- 0.8 #{m^2/g}
+    SA_nuc_abs <- M_nuc_abs*1000*SSA #{m^2}
+    SA_total <- SA_total + SA_nuc_abs
+    Fcarb_mol_kg <- M_nuc*1000/100.0869 #{mol/kg}
+    n_whiting <- n_whiting + 1
+    Alk_Ca_carb <- 7
+    alpha_exchange <- 10
+  } else {
+    Omega_temp <- evap_model$Omega_ar[n-1]
+    if (Omega_temp < 1) {
+      Fcarb_mol_kg <- 0
+      Alk_Ca_carb <- NA
+    } else {
+      Fcarb_mol_kg <- precipkin$k*(Omega_temp - 1)^precipkin$n*10^-6*diff(evap_model$elapsed_time)[n-1]*SA_total/(evap_model$water_init_g[n]*10^-3) #{mol/kg}
+      Alk_Ca_carb <- 7
+      alpha_exchange <- 20
+    }
+  }
+  
+  output <- evapoRate(tempC = tempC,
+                      P_atm = P_atm_Boulder,
+                      xCO2 = 420,
+                      water_initial_mass = evap_model$water_init_g[n-1]/1000,
+                      water_removed_mass = evap_model$water_loss_g[n]/1000,
+                      Na_i = evap_model$Na_mmol_kg[n-1],
+                      Mg_i = evap_model$Mg_mmol_kg[n-1],
+                      Ca_i = evap_model$Ca_mmol_kg[n-1],
+                      K_i = evap_model$K_mmol_kg[n-1],
+                      Cl_i = evap_model$Cl_mmol_kg[n-1],
+                      SO4_i = evap_model$SO4_mmol_kg[n-1],
+                      Alk_i = evap_model$Alk_mmol_kg[n-1],
+                      DIC_i = evap_model$DIC_mmol_kg[n-1],
+                      gas_exchange_mode = "solid_wall",
+                      rho_air = 0.984,
+                      u_air = 0.2,
+                      surface_length = beaker_diam,
+                      surface_area = beaker_SA,
+                      alpha_exchange = alpha_exchange,
+                      timestep = diff(evap_model$elapsed_time)[n-1],
+                      CaCO3_precip = "yes",
+                      Fcarb_mol_kg = Fcarb_mol_kg,
+                      Alk_Ca_carb = Alk_Ca_carb
+                      )
+  
+  evap_model$Na_mmol_kg[n] <- output$Na_mmol_kg
+  evap_model$Mg_mmol_kg[n] <- output$Mg_mmol_kg
+  evap_model$Ca_mmol_kg[n] <- output$Ca_mmol_kg
+  evap_model$K_mmol_kg[n] <- output$K_mmol_kg
+  evap_model$Cl_mmol_kg[n] <- output$Cl_mmol_kg
+  evap_model$SO4_mmol_kg[n] <- output$SO4_mmol_kg
+  evap_model$salinity[n] <- output$salinity
+  evap_model$Alk_mmol_kg[n] <- output$Alk_mmol_kg
+  evap_model$DIC_mmol_kg[n] <- output$DIC_mmol_kg
+  evap_model$pCO2[n] <- output$pCO2
+  evap_model$pH[n] <- output$pH
+  evap_model$Omega_ar[n] <- output$Omega_ar
+  evap_model$Omega_cc[n] <- output$Omega_cc
+  evap_model$Omega_gy[n] <- output$Omega_gy
+}
+evap_model_CaCO3_precip <- evap_model
+
+JR1obs <- select(JR1data,c(Elapsed_time_hr,Ca_mmol_kg,K_mmol_kg,Mg_mmol_kg,Na_mmol_kg,Cl_mmol_kg,SO4_mmol_kg,Omega_ar,Omega_cc,Omega_gy,DIC_mmol_kg,pCO2,undiluted_Alk_mmol_kg,pH))
+JR1obs <- rename(JR1obs,
+                 "Alk_mmol_kg" = "undiluted_Alk_mmol_kg",
+                 "elapsed_time" = "Elapsed_time_hr")
+JR1obs$group <- "observations"
+JR1obs$sample <- "JR1"
+
+JR2obs <- select(JR2data,c(Elapsed_time_hr,Ca_mmol_kg,K_mmol_kg,Mg_mmol_kg,Na_mmol_kg,Cl_mmol_kg,SO4_mmol_kg,Omega_ar,Omega_cc,Omega_gy,DIC_mmol_kg,pCO2,undiluted_Alk_mmol_kg,pH))
+JR2obs <- rename(JR2obs,
+                 "Alk_mmol_kg" = "undiluted_Alk_mmol_kg",
+                 "elapsed_time" = "Elapsed_time_hr")
+JR2obs$group <- "observations"
+JR2obs$sample <- "JR2"
+
+suppressMessages({
+  obsdata <- full_join(JR1obs,JR2obs)
+})
+
+evap_model$group <- "model"
+
+suppressMessages({
+  plotdata <- full_join(obsdata,evap_model)
+})
+
+plotdata <- pivot_longer(plotdata,cols = c("DIC_mmol_kg",
+                                           "Alk_mmol_kg",
+                                           "Omega_ar",
+                                           "Omega_gy",
+                                           "pH",
+                                           "pCO2",
+                                           "Ca_mmol_kg",
+                                           "Mg_mmol_kg",
+                                           "Na_mmol_kg",
+                                           "K_mmol_kg",
+                                           "Cl_mmol_kg",
+                                           "SO4_mmol_kg"),
+                            names_to = "parameter",
+                            values_to = "value")
+
+plotdata <- mutate(plotdata,
+                      parameter = factor(parameter,
+                                         levels = c("Na_mmol_kg",
+                                                    "Mg_mmol_kg",
+                                                    "Ca_mmol_kg",
+                                                    "K_mmol_kg",
+                                                    "Cl_mmol_kg",
+                                                    "SO4_mmol_kg",
+                                                    "Alk_mmol_kg",
+                                                    "DIC_mmol_kg",
+                                                    "Omega_ar",
+                                                    "pH",
+                                                    "pCO2",
+                                                    "Omega_gy"),
+                                         labels = c("[Na] (mmol/kg)",
+                                                    "[Mg] (mmol/kg)",
+                                                    "[Ca] (mmol/kg)",
+                                                    "[K] (mmol/kg)",
+                                                    "[Cl] (mmol/kg)",
+                                                    "[SO\u2084] (mmol/kg)",
+                                                    "Alk (mequiv/kg)",
+                                                    "DIC (mmol/kg)",
+                                                    "aragonite \u03a9",
+                                                    "pH",
+                                                    "pCO\u2082 (\u03bcatm)",
+                                                    "gypsum \u03a9"),
+                                         ordered = TRUE))
+
+ggplot(data = plotdata,
+       mapping = aes(x = elapsed_time,
+                     y = value,
+                     color = parameter)) +
+  geom_point(data = ~subset(., group == "observations"),
+             mapping = aes(shape = factor(sample)),
+             size = 3) + 
+  geom_line(data = ~subset(., group == "model")) +
+  facet_wrap(~parameter,
+             ncol = 3,
+             scales = "free_y") +
+  scale_color_manual(
+    values=lacroix_palette(
+      "PassionFruit", 
+      type = "continuous",
+      n = 12)) +
+  ylab(NULL) +
+  xlab("elapsed time (hr)") +
+  theme_light() +
+  theme(legend.position = "none") -> plot_CaCO3_precip
+
+suppressWarnings(plot(plot_CaCO3_precip))
+```
+
+The inclusion of CaCO~3~ precipitation is able to capture many of the key features of the data, although capturing the precipitation by the model perfectly would require additional observations that are not available for this dataset. evapoRate does not currently include the precipitation of additional minerals, but we plan to add more such capabilities in the future. In the meantime, enterprising users could roughly simulate the formation of additional minerals by modifying the concentrations of the ions comprising those minerals in appropriate amounts after each timestep.
