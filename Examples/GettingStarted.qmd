@@ -19,6 +19,8 @@ At its core, evapoRate uses the PHREEQC R package to do solution chemistry and r
 
 ## Load libraries
 
+In addition to the evapoRate package, the code in this document requires the installation of the phreeqc, tidyverse, and readxl packages (all available through CRAN) and the LaCroixColoR package (available through github: <https://github.com/johannesbjork/LaCroixColoR>
+
 ```{r load-libraries}
 suppressWarnings({
   library(evapoRate)
