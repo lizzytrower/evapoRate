@@ -170,6 +170,7 @@ evapoRate <- function(
     '  -molalities       CO2',
     '  -totals           C(4) Na Ca Mg K Cl S(6) Si',
     '  -si               aragonite calcite dolomite magnesite monohydrocalcite hydromagnesite gypsum sepiolite CO2(g)',
+    '  -activities       H2O',
 
     ' REACTION 1',
     '    H2O     -1.0',
@@ -187,11 +188,12 @@ evapoRate <- function(
 
   output <- as.data.frame(pCO2_obs)
 
-  #save the conservative ions
+  #save the conservative ions and water activity
   output$Na_mmol_kg <- phreeqc_output1$n1$Na.mol.kgw.[2]*1000
   output$K_mmol_kg <- phreeqc_output1$n1$K.mol.kgw.[2]*1000
   output$Cl_mmol_kg <- phreeqc_output1$n1$Cl.mol.kgw.[2]*1000
   output$salinity <- phreeqc_output1$n1$Na.mol.kgw.[2]*22.989769 + phreeqc_output1$n1$Ca.mol.kgw.[2]*40.078 + phreeqc_output1$n1$Mg.mol.kgw.[2]*24.305 + phreeqc_output1$n1$K.mol.kgw.[2]*39.0983 + phreeqc_output1$n1$Cl.mol.kgw.[2]*35.453 + phreeqc_output1$n1$S.6..mol.kgw.[2]*96.06 + phreeqc_output1$n1$C.4..mol.kgw.[2]*61.0168
+  output$H2O_activity <- 10^phreeqc_output1$n1$la_H2O[2]
 
   #CO2 exchange
   if (gas_exchange_mode == "none") {
