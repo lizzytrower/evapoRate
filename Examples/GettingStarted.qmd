@@ -1163,7 +1163,7 @@ for (n in 2:length(evap_model$elapsed_time)) {
                       d13C_tracking = "yes",
                       d13C_DIC_i_invasion = evap_model$d13C_DIC[n-1],
                       d13C_DIC_i_Rayleigh = d13C_DIC_i_Rayleigh,
-                      eps_g_DIC = -10,
+                      eps_g_DIC = -8.5,
                       alpha_DIC_g = 0.985,
                       f_remaining = f_remaining
   )

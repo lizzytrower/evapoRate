@@ -38,7 +38,12 @@ evapoRate(
   Fcarb_mol_kg = 0,
   Alk_Ca_carb = 2,
   Mg_Ca_carb = 0,
-  Ca_Ca_carb = 1
+  Ca_Ca_carb = 1,
+  MgSi_precip = "no",
+  FMgSi_mol_kg = 0,
+  Mg_MgSi = 4,
+  Si_MgSi = 6,
+  Alk_MgSi = 8
 )
 }
 \arguments{

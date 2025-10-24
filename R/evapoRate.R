@@ -94,7 +94,12 @@ evapoRate <- function(
     Fcarb_mol_kg = 0, #calculated CaCO3 precipitation flux (mol), where Fcarb > 0 corresponds to net precipitation
     Alk_Ca_carb = 2, #ratio of moles of alkalinity consumed to moles of CaCO3 produced
     Mg_Ca_carb = 0, #ratio of moles of Mg consumed to moles of CaCO3 produced (helpful for exploring precipitation of high-Mg calcite or protodolomite)
-    Ca_Ca_carb = 1
+    Ca_Ca_carb = 1,
+    MgSi_precip = "no",
+    FMgSi_mol_kg = 0, #calculated Mg-silicate precipitation flux (mol), where Fcarb > 0 corresponds to net precipitation
+    Mg_MgSi = 4, #ratio of moles of Mg consumed to moles of Mg-silicate produced
+    Si_MgSi = 6, #ratio of moles of Si consumed to moles of Mg-silicate produced
+    Alk_MgSi = 8 #ratio of moles of Alk consumed to moles of Mg-silicate produced
 ) {
 
   #warnings to catch incorrect inputs
@@ -295,6 +300,18 @@ evapoRate <- function(
       Mg_new <- phreeqc_output1$n1$Mg.mol.kgw.[2]*1000 - Mg_Ca_carb*Fcarb_mmol_kg
       SO4_new <- phreeqc_output1$n1$S.6..mol.kgw.[2]*1000
       Si_new <- phreeqc_output1$n1$Si.mol.kgw.[2]*1000
+    }
+
+    #Mg-silicate mineral precipitation calculations
+    if (FMgSi_mol_kg <= 0 || MgSi_precip == "no") {
+      Mg_new <- Mg_new
+      Alk_new <- Alk_new
+      Si_new <- Si_new
+    } else {
+      FMgSi_mmol_kg <- FMgSi_mol_kg*10^3
+      Mg_new <- Mg_new - Mg_MgSi*FMgSi_mmol_kg
+      Alk_new <- Alk_new - Alk_MgSi*FMgSi_mmol_kg
+      Si_new <- Si_new - Si_MgSi*FMgSi_mmol_kg
     }
 
     #second PHREEQC calculation to recalculate carbonate speciation incorporating gas exchange and CaCO3 precipitation
