@@ -53,6 +53,21 @@
 #' @param Alk_Ca_carb ratio of alkalinity consumed per mole of CaCO<sub>3</sub> precipitated; default is 2
 #' @param Ca_Ca_carb ratio of calcium consumed per mole of CaCO<sub>3</sub> precipitated; default is 1 (note this might be appropriate to change for high-Mg calcite)
 #' @param Mg_Ca_carb ratio of magnesium consumed per mole of CaCO<sub>3</sub> precipitated; default is 0 (note this might be appropriate to change for high-Mg calcite)
+#' @param MgCO3_precip one of two possible strings determining whether to include MgCO<sub>3</sub> precipitation; default is "no" (no MgCO<sub>3</sub> precipitation); "yes" turns on MgCO<sub>3</sub> precipitation
+#' @param FMgcarb_mol_kg MgCO<sub>3</sub> precipitation flux, in mol/kg; note that this should be scaled for the timestep duration
+#' @param Alk_Mgcarb ratio of alkalinity consumed per mole of MgCO<sub>3</sub> precipitated; default is 10
+#' @param DIC_Mgcarb ratio of DIC consumed per mole of MgCO<sub>3</sub> precipitated; default is 4
+#' @param Mg_Mgcarb ratio of magnesium consumed per mole of MgCO<sub>3</sub> precipitated; default is 5
+#' @param SO4_precip one of two possible strings determining whether to include SO<sub>4</sub> precipitation; default is "no" (no SO<sub>4</sub> precipitation); "yes" turns on SO<sub>4</sub> precipitation
+#' @param FSO4_mol_kg SO<sub>4</sub> precipitation flux, in mol/kg; note that this should be scaled for the timestep duration
+#' @param Ca_SO4 ratio of calcium consumed per mole of SO<sub>4</sub> precipitated; default is 1 (can set to zero to simulate sulfate diffusion into sediment or microbial sulfate reduction)
+#' @param SO4_SO4 ratio of sulfate consumed per mole of SO<sub>4</sub> precipitated; default is 1
+#' @param Mg_SO4 ratio of magnesium consumed per mole of SO<sub>4</sub> precipitated; default is 1 (can set to zero to simulate sulfate diffusion into sediment or microbial sulfate reduction)
+#' @param MgSi_precip one of two possible strings determining whether to include MgSi precipitation; default is "no" (no MgSi precipitation); "yes" turns on MgSi precipitation
+#' @param FMgSi_mol_kg MgSi precipitation flux, in mol/kg; note that this should be scaled for the timestep duration
+#' @param Mg_MgSi ratio of magnesium consumed per mole of MgSi precipitated; default is 4
+#' @param Si_MgSi ratio of silicon consumed per mole of MgSi precipitated; default is 6
+#' @param Alk_MgSi ratio of alkalinity consumed per mole of MgSi precipitated; default is 8
 #'
 #' @returns output dataframe that includes major ion concentrations, saturation states for a number of relevant minerals, and the calculated gas flux
 #' @examples
@@ -95,6 +110,16 @@ evapoRate <- function(
     Alk_Ca_carb = 2, #ratio of moles of alkalinity consumed to moles of CaCO3 produced
     Mg_Ca_carb = 0, #ratio of moles of Mg consumed to moles of CaCO3 produced (helpful for exploring precipitation of high-Mg calcite or protodolomite)
     Ca_Ca_carb = 1,
+    MgCO3_precip = "no",
+    FMgcarb_mol_kg = 0, #calculated MgCO3 precipitation flux (mol)
+    Alk_Mgcarb = 10, #ratio of moles of alkalinity consumed to moles of MgCO3 produced
+    DIC_Mgcarb = 4, #ratio of moles of DIC consumed to moles of MgCO3 produced
+    Mg_Mgcarb = 5, #ratio of moles of Mg consumed to moles of MgCO3 produced
+    SO4_precip = "no",
+    FSO4_mol_kg = 0, #calculated sulfate mineral precipitation flux (mol)
+    Ca_SO4 = 1, #ratio of moles of Ca consumed to moles of sulfate mineral produced (can set to zero to simulate sulfate diffusion into sediment or microbial sulfate reduction)
+    SO4_SO4 = 1, #ratio of moles of SO4 consumed per moles of sulfate mineral produced
+    Mg_SO4 = 0, #ratio of moles of Mg consumed to moles of sulfate mineral produced (can set to zero to simulate sulfate diffusion into sediment or microbial sulfate reduction)
     MgSi_precip = "no",
     FMgSi_mol_kg = 0, #calculated Mg-silicate precipitation flux (mol), where Fcarb > 0 corresponds to net precipitation
     Mg_MgSi = 4, #ratio of moles of Mg consumed to moles of Mg-silicate produced
@@ -302,6 +327,30 @@ evapoRate <- function(
       Si_new <- phreeqc_output1$n1$Si.mol.kgw.[2]*1000
     }
 
+    #MgCO3 precipitation calculations
+    if (FMgcarb_mol_kg <= 0 || MgCO3_precip == "no") {
+      Alk_new <- Alk_new
+      DIC_new <- DIC_new
+      Mg_new <- Mg_new
+    } else {
+      FMgcarb_mmol_kg <- FMgcarb_mol_kg*10^3
+      Alk_new <- Alk_new - Alk_Mgcarb*FMgcarb_mmol_kg
+      DIC_new <- DIC_new - DIC_Mgcarb*FMgcarb_mmol_kg
+      Mg_new <- Mg_new - Mg_Mgcarb*FMgcarb_mmol_kg
+    }
+
+    #sulfate mineral precipitation calculations
+    if (FSO4_mol_kg <= 0 || SO4_precip == "no") {
+      Mg_new <- Mg_new
+      SO4_new <- SO4_new
+      Ca_new <- Ca_new
+    } else {
+      FSO4_mmol_kg <- FSO4_mol_kg*10^3
+      Mg_new <- Mg_new - Mg_SO4*FSO4_mmol_kg
+      Ca_new <- Ca_new - Ca_SO4*FSO4_mmol_kg
+      SO4_new <- SO4_new - SO4_SO4*FSO4_mmol_kg
+    }
+
     #Mg-silicate mineral precipitation calculations
     if (FMgSi_mol_kg <= 0 || MgSi_precip == "no") {
       Mg_new <- Mg_new
@@ -346,6 +395,7 @@ evapoRate <- function(
       '  -pH               TRUE',
       '  -Alkalinity       TRUE',
       '  -molalities       CO2',
+      '  -activities       H+ Mg+2 H4SiO4 H2O',
       '  -totals           C(4) Na Ca Mg K Cl S(6) Si',
       '  -si               aragonite calcite dolomite magnesite monohydrocalcite hydromagnesite gypsum sepiolite CO2(g)',
 
@@ -376,6 +426,10 @@ evapoRate <- function(
     output$Omega_gy <- 10^phreeqc_output2$n1$si_gypsum[2]
     output$Omega_sep <- 10^phreeqc_output2$n1$si_sepiolite[2]
     output$Fgas <- Fgas
+    output$a_H <- 10^phreeqc_output2$n1$la_H.[2]
+    output$a_Mg <- 10^phreeqc_output2$n1$la_Mg.2[2]
+    output$a_Si <- 10^phreeqc_output2$n1$la_H4SiO4[2]
+    output$a_H2O <- 10^phreeqc_output2$n1$la_H2O[2]
 
   if (d13C_tracking == "yes") {
 
