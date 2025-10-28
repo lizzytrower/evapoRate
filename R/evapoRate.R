@@ -431,6 +431,7 @@ evapoRate <- function(
     output$a_Si <- 10^phreeqc_output2$n1$la_H4SiO4[2]
     output$a_H2O <- 10^phreeqc_output2$n1$la_H2O[2]
 
+
   if (d13C_tracking == "yes") {
 
     if (Fgas > 0) {
