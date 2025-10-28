@@ -39,6 +39,16 @@ evapoRate(
   Alk_Ca_carb = 2,
   Mg_Ca_carb = 0,
   Ca_Ca_carb = 1,
+  MgCO3_precip = "no",
+  FMgcarb_mol_kg = 0,
+  Alk_Mgcarb = 10,
+  DIC_Mgcarb = 4,
+  Mg_Mgcarb = 5,
+  SO4_precip = "no",
+  FSO4_mol_kg = 0,
+  Ca_SO4 = 1,
+  SO4_SO4 = 1,
+  Mg_SO4 = 0,
   MgSi_precip = "no",
   FMgSi_mol_kg = 0,
   Mg_MgSi = 4,
@@ -108,6 +118,36 @@ evapoRate(
 \item{Mg_Ca_carb}{ratio of magnesium consumed per mole of CaCO\if{html}{\out{<sub>}}3\if{html}{\out{</sub>}} precipitated; default is 0 (note this might be appropriate to change for high-Mg calcite)}
 
 \item{Ca_Ca_carb}{ratio of calcium consumed per mole of CaCO\if{html}{\out{<sub>}}3\if{html}{\out{</sub>}} precipitated; default is 1 (note this might be appropriate to change for high-Mg calcite)}
+
+\item{MgCO3_precip}{one of two possible strings determining whether to include MgCO\if{html}{\out{<sub>}}3\if{html}{\out{</sub>}} precipitation; default is "no" (no MgCO\if{html}{\out{<sub>}}3\if{html}{\out{</sub>}} precipitation); "yes" turns on MgCO\if{html}{\out{<sub>}}3\if{html}{\out{</sub>}} precipitation}
+
+\item{FMgcarb_mol_kg}{MgCO\if{html}{\out{<sub>}}3\if{html}{\out{</sub>}} precipitation flux, in mol/kg; note that this should be scaled for the timestep duration}
+
+\item{Alk_Mgcarb}{ratio of alkalinity consumed per mole of MgCO\if{html}{\out{<sub>}}3\if{html}{\out{</sub>}} precipitated; default is 10}
+
+\item{DIC_Mgcarb}{ratio of DIC consumed per mole of MgCO\if{html}{\out{<sub>}}3\if{html}{\out{</sub>}} precipitated; default is 4}
+
+\item{Mg_Mgcarb}{ratio of magnesium consumed per mole of MgCO\if{html}{\out{<sub>}}3\if{html}{\out{</sub>}} precipitated; default is 5}
+
+\item{SO4_precip}{one of two possible strings determining whether to include SO\if{html}{\out{<sub>}}4\if{html}{\out{</sub>}} precipitation; default is "no" (no SO\if{html}{\out{<sub>}}4\if{html}{\out{</sub>}} precipitation); "yes" turns on SO\if{html}{\out{<sub>}}4\if{html}{\out{</sub>}} precipitation}
+
+\item{FSO4_mol_kg}{SO\if{html}{\out{<sub>}}4\if{html}{\out{</sub>}} precipitation flux, in mol/kg; note that this should be scaled for the timestep duration}
+
+\item{Ca_SO4}{ratio of calcium consumed per mole of SO\if{html}{\out{<sub>}}4\if{html}{\out{</sub>}} precipitated; default is 1 (can set to zero to simulate sulfate diffusion into sediment or microbial sulfate reduction)}
+
+\item{SO4_SO4}{ratio of sulfate consumed per mole of SO\if{html}{\out{<sub>}}4\if{html}{\out{</sub>}} precipitated; default is 1}
+
+\item{Mg_SO4}{ratio of magnesium consumed per mole of SO\if{html}{\out{<sub>}}4\if{html}{\out{</sub>}} precipitated; default is 1 (can set to zero to simulate sulfate diffusion into sediment or microbial sulfate reduction)}
+
+\item{MgSi_precip}{one of two possible strings determining whether to include MgSi precipitation; default is "no" (no MgSi precipitation); "yes" turns on MgSi precipitation}
+
+\item{FMgSi_mol_kg}{MgSi precipitation flux, in mol/kg; note that this should be scaled for the timestep duration}
+
+\item{Mg_MgSi}{ratio of magnesium consumed per mole of MgSi precipitated; default is 4}
+
+\item{Si_MgSi}{ratio of silicon consumed per mole of MgSi precipitated; default is 6}
+
+\item{Alk_MgSi}{ratio of alkalinity consumed per mole of MgSi precipitated; default is 8}
 
 \item{d13_C_tracking}{one of two possible strings determining whether to track carbon isotopes; default is "no" (\eqn{\delta}\if{html}{\out{<sup>}}13\if{html}{\out{</sup>}}C tracking is off); the other option is "yes" (\eqn{\delta}\if{html}{\out{<sup>}}13\if{html}{\out{</sup>}}C tracking is on). \eqn{\delta}\if{html}{\out{<sup>}}13\if{html}{\out{</sup>}}C tracking is only available when gas exchange is turned on.}
 
