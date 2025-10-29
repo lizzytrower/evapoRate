@@ -206,7 +206,7 @@ evapoRate <- function(
     '  -Alkalinity       TRUE',
     '  -molalities       CO2',
     '  -totals           C(4) Na Ca Mg K Cl S(6) Si',
-    '  -si               aragonite calcite dolomite magnesite monohydrocalcite hydromagnesite gypsum sepiolite sylvite hexahydrite epsomite CO2(g)',
+    '  -si               aragonite calcite dolomite magnesite monohydrocalcite hydromagnesite gypsum sepiolite sylvite hexahydrite epsomite mirabilite CO2(g)',
     '  -activities       H2O',
 
     ' REACTION 1',
@@ -251,9 +251,10 @@ evapoRate <- function(
     output$Omega_hmag <- 10^phreeqc_output1$n1$si_hydromagnesite[2]
     output$Omega_gy <- 10^phreeqc_output1$n1$si_gypsum[2]
     output$Omega_sep <- 10^phreeqc_output1$n1$si_sepiolite[2]
-    output$Omega_hexahydrite <- 10^phreeqc_output2$n1$si_hexahydrite[2]
-    output$Omega_epsomite <- 10^phreeqc_output2$n1$si_epsomite[2]
-    output$Omega_sylvite <- 10^phreeqc_output2$n1$si_sylvite[2]
+    output$Omega_hexahydrite <- 10^phreeqc_output1$n1$si_hexahydrite[2]
+    output$Omega_epsomite <- 10^phreeqc_output1$n1$si_epsomite[2]
+    output$Omega_sylvite <- 10^phreeqc_output1$n1$si_sylvite[2]
+    output$Omega_mirab <- 10^phreeqc_output1$n1$si_mirabilite[2]
     output$Fgas <- 0
 
   } else {
@@ -421,7 +422,7 @@ evapoRate <- function(
       '  -molalities       CO2',
       '  -activities       H+ Mg+2 H4SiO4 H2O',
       '  -totals           C(4) Na Ca Mg K Cl S(6) Si',
-      '  -si               aragonite calcite dolomite magnesite monohydrocalcite hydromagnesite gypsum sepiolite sylvite hexahydrite epsomite CO2(g)',
+      '  -si               aragonite calcite dolomite magnesite monohydrocalcite hydromagnesite gypsum sepiolite sylvite hexahydrite epsomite mirabilite CO2(g)',
 
       ' REACTION 1',
       '    CO2     -1.0',
@@ -452,6 +453,7 @@ evapoRate <- function(
     output$Omega_hexahydrite <- 10^phreeqc_output2$n1$si_hexahydrite[2]
     output$Omega_epsomite <- 10^phreeqc_output2$n1$si_epsomite[2]
     output$Omega_sylvite <- 10^phreeqc_output2$n1$si_sylvite[2]
+    output$Omega_mirab <- 10^phreeqc_output2$n1$si_mirabilite[2]
     output$Fgas <- Fgas
     output$a_H <- 10^phreeqc_output2$n1$la_H.[2]
     output$a_Mg <- 10^phreeqc_output2$n1$la_Mg.2[2]
