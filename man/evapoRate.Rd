@@ -53,7 +53,11 @@ evapoRate(
   FMgSi_mol_kg = 0,
   Mg_MgSi = 4,
   Si_MgSi = 6,
-  Alk_MgSi = 8
+  Alk_MgSi = 8,
+  Cl_precip = "no",
+  FCl_mol_kg = 0,
+  K_Cl = 1,
+  Cl_Cl = 1
 )
 }
 \arguments{
@@ -148,6 +152,12 @@ evapoRate(
 \item{Si_MgSi}{ratio of silicon consumed per mole of MgSi precipitated; default is 6}
 
 \item{Alk_MgSi}{ratio of alkalinity consumed per mole of MgSi precipitated; default is 8}
+
+\item{Cl_precip}{one of two possible strings determining whether to include chloride precipitation; default is "no" (no chloride precipitation); "yes" turns on chloride precipitation}
+
+\item{K_Cl}{ratio of potassium consumed per mole of chloride mineral precipitated; default is 1}
+
+\item{Cl_Cl}{rato of chloride consumed per mole of chloride mineral precipitated; default is 1}
 
 \item{d13_C_tracking}{one of two possible strings determining whether to track carbon isotopes; default is "no" (\eqn{\delta}\if{html}{\out{<sup>}}13\if{html}{\out{</sup>}}C tracking is off); the other option is "yes" (\eqn{\delta}\if{html}{\out{<sup>}}13\if{html}{\out{</sup>}}C tracking is on). \eqn{\delta}\if{html}{\out{<sup>}}13\if{html}{\out{</sup>}}C tracking is only available when gas exchange is turned on.}
 

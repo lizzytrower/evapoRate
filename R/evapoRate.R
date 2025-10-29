@@ -68,6 +68,9 @@
 #' @param Mg_MgSi ratio of magnesium consumed per mole of MgSi precipitated; default is 4
 #' @param Si_MgSi ratio of silicon consumed per mole of MgSi precipitated; default is 6
 #' @param Alk_MgSi ratio of alkalinity consumed per mole of MgSi precipitated; default is 8
+#' @param Cl_precip one of two possible strings determining whether to include chloride precipitation; default is "no" (no chloride precipitation); "yes" turns on chloride precipitation
+#' @param K_Cl ratio of potassium consumed per mole of chloride mineral precipitated; default is 1
+#' @param Cl_Cl rato of chloride consumed per mole of chloride mineral precipitated; default is 1
 #'
 #' @returns output dataframe that includes major ion concentrations, saturation states for a number of relevant minerals, and the calculated gas flux
 #' @examples
@@ -124,7 +127,11 @@ evapoRate <- function(
     FMgSi_mol_kg = 0, #calculated Mg-silicate precipitation flux (mol), where Fcarb > 0 corresponds to net precipitation
     Mg_MgSi = 4, #ratio of moles of Mg consumed to moles of Mg-silicate produced
     Si_MgSi = 6, #ratio of moles of Si consumed to moles of Mg-silicate produced
-    Alk_MgSi = 8 #ratio of moles of Alk consumed to moles of Mg-silicate produced
+    Alk_MgSi = 8, #ratio of moles of Alk consumed to moles of Mg-silicate produced
+    Cl_precip = "no",
+    FCl_mol_kg = 0, #calculated chloride mineral precipitation flux (mol)
+    K_Cl = 1, #ratio of moles of K consumed to moles of chloride mineral produced
+    Cl_Cl = 1 #ratio of moles of Cl consumed to moles of chloride mineral produced
 ) {
 
   #warnings to catch incorrect inputs
