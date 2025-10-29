@@ -199,7 +199,7 @@ evapoRate <- function(
     '  -Alkalinity       TRUE',
     '  -molalities       CO2',
     '  -totals           C(4) Na Ca Mg K Cl S(6) Si',
-    '  -si               aragonite calcite dolomite magnesite monohydrocalcite hydromagnesite gypsum sepiolite CO2(g)',
+    '  -si               aragonite calcite dolomite magnesite monohydrocalcite hydromagnesite gypsum sepiolite sylvite hexahydrite epsomite CO2(g)',
     '  -activities       H2O',
 
     ' REACTION 1',
@@ -244,6 +244,9 @@ evapoRate <- function(
     output$Omega_hmag <- 10^phreeqc_output1$n1$si_hydromagnesite[2]
     output$Omega_gy <- 10^phreeqc_output1$n1$si_gypsum[2]
     output$Omega_sep <- 10^phreeqc_output1$n1$si_sepiolite[2]
+    output$Omega_hexahydrite <- 10^phreeqc_output2$n1$si_hexahydrite[2]
+    output$Omega_epsomite <- 10^phreeqc_output2$n1$si_epsomite[2]
+    output$Omega_sylvite <- 10^phreeqc_output2$n1$si_sylvite[2]
     output$Fgas <- 0
 
   } else {
@@ -317,6 +320,8 @@ evapoRate <- function(
       Mg_new <- phreeqc_output1$n1$Mg.mol.kgw.[2]*1000
       SO4_new <- phreeqc_output1$n1$S.6..mol.kgw.[2]*1000
       Si_new <- phreeqc_output1$n1$Si.mol.kgw.[2]*1000
+      Cl_new <- phreeqc_output1$n1$Cl.mol.kgw.[2]*1000
+      K_new <- phreeqc_output1$n1$K.mol.kgw.[2]*1000
     } else if (CaCO3_precip == "yes") {
       Fcarb_mmol_kg <- Fcarb_mol_kg*10^3
       Alk_new <- phreeqc_output1$n1$Alk.eq.kgw.[2]*1000 - Alk_Ca_carb*Fcarb_mmol_kg
@@ -325,6 +330,8 @@ evapoRate <- function(
       Mg_new <- phreeqc_output1$n1$Mg.mol.kgw.[2]*1000 - Mg_Ca_carb*Fcarb_mmol_kg
       SO4_new <- phreeqc_output1$n1$S.6..mol.kgw.[2]*1000
       Si_new <- phreeqc_output1$n1$Si.mol.kgw.[2]*1000
+      Cl_new <- phreeqc_output1$n1$Cl.mol.kgw.[2]*1000
+      K_new <- phreeqc_output1$n1$K.mol.kgw.[2]*1000
     }
 
     #MgCO3 precipitation calculations
@@ -363,6 +370,16 @@ evapoRate <- function(
       Si_new <- Si_new - Si_MgSi*FMgSi_mmol_kg
     }
 
+    #chloride mineral precipitation calculations
+    if (FCl_mol_kg <= 0 || Cl_precip == "no") {
+      K_new <- K_new
+      Cl_new <- Cl_new
+    } else {
+      FCl_mmol_kg <- FCl_mol_kg*10^3
+      K_new <- K_new - K_Cl*FCl_mmol_kg
+      Cl_new <- Cl_new - Cl_Cl*FCl_mmol_kg
+    }
+
     #second PHREEQC calculation to recalculate carbonate speciation incorporating gas exchange and CaCO3 precipitation
     input2 <- c(
       ' PHASES',
@@ -384,8 +401,8 @@ evapoRate <- function(
       paste('  Ca                ',as.character(Ca_new)),
       paste('  Mg                ',as.character(Mg_new)),
       paste('  Na                ',as.character(output$Na_mmol_kg)),
-      paste('  K                 ',as.character(output$K_mmol_kg)),
-      paste('  Cl                ',as.character(output$Cl_mmol_kg)),
+      paste('  K                 ',as.character(K_new)),
+      paste('  Cl                ',as.character(Cl_new)),
       paste('  S(6)              ',as.character(SO4_new)),
       paste('  Si                ',as.character(Si_new)),
       paste('  water             ',as.character(water_final_mass)),
@@ -397,7 +414,7 @@ evapoRate <- function(
       '  -molalities       CO2',
       '  -activities       H+ Mg+2 H4SiO4 H2O',
       '  -totals           C(4) Na Ca Mg K Cl S(6) Si',
-      '  -si               aragonite calcite dolomite magnesite monohydrocalcite hydromagnesite gypsum sepiolite CO2(g)',
+      '  -si               aragonite calcite dolomite magnesite monohydrocalcite hydromagnesite gypsum sepiolite sylvite hexahydrite epsomite CO2(g)',
 
       ' REACTION 1',
       '    CO2     -1.0',
@@ -425,6 +442,9 @@ evapoRate <- function(
     output$Omega_hmag <- 10^phreeqc_output2$n1$si_hydromagnesite[2]
     output$Omega_gy <- 10^phreeqc_output2$n1$si_gypsum[2]
     output$Omega_sep <- 10^phreeqc_output2$n1$si_sepiolite[2]
+    output$Omega_hexahydrite <- 10^phreeqc_output2$n1$si_hexahydrite[2]
+    output$Omega_epsomite <- 10^phreeqc_output2$n1$si_epsomite[2]
+    output$Omega_sylvite <- 10^phreeqc_output2$n1$si_sylvite[2]
     output$Fgas <- Fgas
     output$a_H <- 10^phreeqc_output2$n1$la_H.[2]
     output$a_Mg <- 10^phreeqc_output2$n1$la_Mg.2[2]
