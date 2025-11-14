@@ -150,11 +150,6 @@ evapoRate <- function(
   }
 
   #warnings for combinations of modes that aren't available yet
-  if (d13C_tracking == "yes" && CaCO3_precip == "yes") {
-    print("Warning: d13C tracking currently not enabled in combination with CaCO3 precipitation. Turning off d13C tracking mode.")
-    d13C_tracking <- "no"
-  }
-
   if (CaCO3_precip == "yes" && Fcarb_mol_kg < 0) {
     print("Warning: CaCO3 dissolution kinetics not available yet. Setting Fcarb to zero.")
     Fcarb_mol_kg <- 0
