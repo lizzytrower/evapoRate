@@ -1050,7 +1050,7 @@ It is also useful to predict how the carbon isotope ratios of the dissolved inor
 
 ## Example 5: 𝝳^13^C tracking
 
-The seawater evaporation experiment dataset shown in the previous examples also includes 𝛿^13^C~DIC~ values that we can use to show how this mode works. This dataset is characterized by CO~2~ invasion for the first \~half of the experiment and CO~2~ degassing for the second \~half of the experiment; we expect different behavior for these two processes. The change in 𝛿^13^C~DIC~ values during CO~2~ invasion is represented by the mass balance of the pre-existing \[DIC\] and its 𝛿^13^C~DIC~ value and the DIC added and its 𝛿^13^C~DIC~ value, which has a set fractionation (𝜀~g-DIC~) relative to the 𝛿^13^C~DIC~ value of atmospheric CO~2~. Although, in theory, CO2 degassing could be represented in an analogous way, our experimental data are not well-represented by this approach. Instead, evapoRate uses a Rayleigh distillation model to describe the evolution of 𝛿^13^C~DIC~ values during CO~2~ degassing associated with evaporation, following @stiller1985. Since evapoRate is designed to be run one timestep at a time, the model does not independently know how long the Rayleigh distillation process has been occurring for. The code below demonstrates an example of how to use the F~gas~ output to drive the desired model behavior.
+The seawater evaporation experiment dataset shown in the previous examples also includes 𝛿^13^C~DIC~ values that we can use to show how this mode works. This dataset is characterized by CO~2~ invasion for the first \~half of the experiment and CO~2~ degassing for the second \~half of the experiment; we expect different behavior for these two processes. The change in 𝛿^13^C~DIC~ values during CO~2~ invasion or degassing is represented by the mass balance of the pre-existing \[DIC\] (specifically, the model tracks the HCO3- pool) and its 𝛿^13^C value and the DIC added or removed and its 𝛿^13^C value. The model allows a choice between equilibrium or kinetic fractionation parameterizations. The code below demonstrates an example of how to use the F~gas~ output to drive the desired model behavior.
 
 ```{r d13C-example}
 time <- seq(from = 0,
@@ -1142,7 +1142,7 @@ for (n in 2:length(evap_model$elapsed_time)) {
   
   output <- evapoRate(tempC = tempC,
                       P_atm = P_atm_Boulder,
-                      xCO2 = 550,
+                      xCO2 = 600,
                       water_initial_mass = evap_model$water_init_g[n-1]/1000,
                       water_removed_mass = evap_model$water_loss_g[n]/1000,
                       Na_i = evap_model$Na_mmol_kg[n-1],
@@ -1155,17 +1155,16 @@ for (n in 2:length(evap_model$elapsed_time)) {
                       DIC_i = evap_model$DIC_mmol_kg[n-1],
                       gas_exchange_mode = "solid_wall",
                       rho_air = 0.984,
-                      u_air = 0.2,
+                      u_air = 0.8,
                       surface_length = beaker_diam,
                       surface_area = beaker_SA,
-                      alpha_exchange = 8,
+                      alpha_exchange = 3,
                       timestep = diff(evap_model$elapsed_time)[n-1],
                       d13C_tracking = "yes",
-                      d13C_DIC_i_invasion = evap_model$d13C_DIC[n-1],
-                      d13C_DIC_i_Rayleigh = d13C_DIC_i_Rayleigh,
-                      eps_g_DIC = -8.5,
-                      alpha_DIC_g = 0.985,
-                      f_remaining = f_remaining
+                      d13C_mode = "kinetic",
+                      d13C_DIC_i = evap_model$d13C_DIC[n-1],
+                      eps_degas_kin = -110,
+                      eps_invasion_kin = -15.2
   )
   
   evap_model$Na_mmol_kg[n] <- output$Na_mmol_kg

@@ -42,12 +42,13 @@
 #' @param surface_length length of surface over which evaporation is occurring; required for "solid_wall" gas exchange mode but unused for other gas exchange modes
 #' @param alpha_exchange a dimensionless factor describing the enhancement of CO<sub>2</sub> exchange due to CO<sub>2</sub> hydration or dehydration reactions, where a value of 1 means no enhancement
 #' @param u_wind wind velocity in m/s; required for "wind" gas exchange mode bu unused for other gas exchange modes
-#' @param d13_C_tracking one of two possible strings determining whether to track carbon isotopes; default is "no" (\eqn{\delta}<sup>13</sup>C tracking is off); the other option is "yes" (\eqn{\delta}<sup>13</sup>C tracking is on). \eqn{\delta}<sup>13</sup>C tracking is only available when gas exchange is turned on.
-#' @param d13C_i_invasion initial \eqn{\delta}<sup>13</sup>C<sub>DIC</sub> value for gas invasion (value from previous timestep)
-#' @param d13C_i_Rayleigh initial \eqn{\delta}<sup>13</sup>C<sub>DIC</sub> value for degassing (value when degassing starts)
-#' @param eps_g_DIC carbon isotope fractionation (permil) associated with CO<sub>2</sub> invasion
-#' @param alpha_DIC_g Rayleigh carbon isotope fractionation factor associated with CO<sub>2</sub degassing >
-#' @param f_remaining fraction of solution remaining - value between 1 and 0, needed for predicted carbon isotope evolution during CO<sub>2</sub> degassing
+#' @param d13C_tracking one of two possible strings determining whether to track carbon isotopes; default is "no" (\eqn{\delta}<sup>13</sup>C tracking is off); the other option is "yes" (\eqn{\delta}<sup>13</sup>C tracking is on). \eqn{\delta}<sup>13</sup>C tracking is only available when gas exchange is turned on.
+#' @param d13C_mode one of two possible strings ("equilibrium" or "kinetic") that sets the type of fractionation parameterization used; only used if d13C_tracking is set to "yes"
+#' @param d13C_DIC_i initial \eqn{\delta}<sup>13</sup>C<sub>DIC</sub> value (should be set to value from previous timestep)
+#' @param d13C_CO2g \eqn{\delta}<sup>13</sup>C value for atmospheric CO<sub>2</sub>
+#' @param eps_degas_kin isotopic fractionation (\eqn{\epsilon}) between bicarbonate and CO<sub>2</sub> associated with CO<sub>2</sub> dehydration/dehydroxylation during degassing; this parameter is only used if \eqn{\delta}<sup>13</sup>C fractionation mode is set to "kinetic"
+#' @param eps_invasion_kin isotopic fractionation (\eqn{\epsilon}) between CO<sub>2</sub> and bicarbonate associated with CO<sub>2</sub> hydration/hydroxylation during CO<sub>2</sub> invasion; this parameter is only used if \eqn{\delta}<sup>13</sup>C fractionation mode is set to "kinetic"
+#' @param eps_CaCO3_bicarb isotopic fractionation (\eqn{\epsilon}) between bicarbonate and CaCO<sub>3</sub> mineral (e.g., aragonite or calcite) associated with mineral precipitation; this parameter is only used if CaCO<sub>3</sub> precipitation is turned on
 #' @param CaCO3_precip one of two possible strings determining whether to include CaCO<sub>3</sub> precipitation; default is "no" (no CaCO<sub>3</sub> precipitation); "yes" turns on CaCO<sub>3</sub> precipitation
 #' @param Fcarb_mol_kg CaCO<sub>3</sub> precipitation flux, in mol/kg; note that this should be scaled for the timestep duration
 #' @param Alk_Ca_carb ratio of alkalinity consumed per mole of CaCO<sub>3</sub> precipitated; default is 2
@@ -103,11 +104,12 @@ evapoRate <- function(
     alpha_exchange = 1, #a factor describing the enhancement of CO2 exchange due to CO2 hydration or dehydration reactions, where a value of 1 means no enhancement
     u_wind = 0, #wind speed, if using the "wind" gas exchange mode (m/s)
     d13C_tracking = "no", #text string, either "yes" or "no" that directs whether or not to track d13C_DIC change
-    d13C_DIC_i_invasion = 0, #initial d13C_DIC value for gas invasion (value from previous timestep)
-    d13C_DIC_i_Rayleigh = 0, #initial d13C_DIC value for degassing (value when degassing starts)
-    eps_g_DIC = 0,
-    alpha_DIC_g = 1,
-    f_remaining = 1, #fraction of solution remaining
+    d13C_mode = "equilibrium", #text string, either "equilibrium" or "kinetic"
+    d13C_DIC_i, #initial d13C_DIC value for gas invasion (value from previous timestep)
+    d13C_CO2g = -8.5, #d13C value for atmospheric CO2
+    eps_degas_kin = -29.5, #isotopic fractionation between bicarbonate and CO2 associated with CO2 dehydration/dehydroxylation (only used if d13C_mode is set to "kinetic")
+    eps_invasion_kin = -13, #isotopic fractionation between CO2 and bicarbonate associated with CO2 hydration/hydroxylation (only used if d13C_mode is set to "kinetic")
+    eps_CaCO3_bicarb = 2.7, #isotopic fractionation between bicarbonate and CaCO3 mineral (default is the value for aragonite), only used if CaCO3_precip is set to "yes"
     CaCO3_precip = "no",
     Fcarb_mol_kg = 0, #calculated CaCO3 precipitation flux (mol), where Fcarb > 0 corresponds to net precipitation
     Alk_Ca_carb = 2, #ratio of moles of alkalinity consumed to moles of CaCO3 produced
@@ -204,7 +206,7 @@ evapoRate <- function(
     '  -high precision   TRUE',
     '  -pH               TRUE',
     '  -Alkalinity       TRUE',
-    '  -molalities       CO2',
+    '  -molalities       CO2 HCO3- CO3-2 MgHCO3+ MgCO3 NaHCO3 CaCO3 KHCO3 CaHCO3+',
     '  -totals           C(4) Na Ca Mg K Cl S(6) Si',
     '  -si               aragonite calcite dolomite magnesite monohydrocalcite hydromagnesite gypsum sepiolite sylvite hexahydrite epsomite mirabilite CO2(g)',
     '  -activities       H2O',
@@ -419,7 +421,7 @@ evapoRate <- function(
       '  -high precision   TRUE',
       '  -pH               TRUE',
       '  -Alkalinity       TRUE',
-      '  -molalities       CO2',
+      '  -molalities       CO2 HCO3- CO3-2 MgHCO3+ MgCO3 NaHCO3 CaCO3 KHCO3 CaHCO3+',
       '  -activities       H+ Mg+2 H4SiO4 H2O',
       '  -totals           C(4) Na Ca Mg K Cl S(6) Si',
       '  -si               aragonite calcite dolomite magnesite monohydrocalcite hydromagnesite gypsum sepiolite sylvite hexahydrite epsomite mirabilite CO2(g)',
@@ -461,14 +463,84 @@ evapoRate <- function(
     output$a_H2O <- 10^phreeqc_output2$n1$la_H2O[2]
 
 
-  if (d13C_tracking == "yes") {
+    if (d13C_tracking == "yes") {
 
-    if (Fgas > 0) {
-      eps_DIC_g <- (alpha_DIC_g - 1)*1000*log(f_remaining)
-      output$d13C_DIC <- eps_DIC_g + d13C_DIC_i_Rayleigh
-    } else {
-        output$d13C_DIC <- (d13C_DIC_i_invasion*phreeqc_output1$n1$C.4..mol.kgw.[2]*water_final_mass - (-8.5 + eps_g_DIC)*Fgas)/(output$DIC_mmol_kg*water_final_mass*10^-3)
+      #equilibrium fractionations from Mook 1986
+      eps_db <- -9866/(tempC + 273) + 24.12
+      eps_cb <- -867/(tempC + 273) + 2.52
+      eps_dg <- -373/(tempC + 273) + 0.19
+      eps_gb <- -9483/(tempC + 273) + 23.89
+      eps_bg <- -eps_gb
+
+      #initial carbonate species concentrations
+      mHCO3_i <- phreeqc_output1$n1$m_HCO3..mol.kgw.[1] + phreeqc_output1$n1$m_MgHCO3..mol.kgw.[1] + phreeqc_output1$n1$m_NaHCO3.mol.kgw.[1] + phreeqc_output1$n1$m_KHCO3.mol.kgw.[1] + phreeqc_output1$n1$m_CaHCO3..mol.kgw.[1]
+      mCO2aq_i <- phreeqc_output1$n1$m_CO2.mol.kgw.[1]
+      mCO3_i <- phreeqc_output1$n1$m_CO3.2.mol.kgw.[1] + phreeqc_output1$n1$m_MgCO3.mol.kgw.[1] + phreeqc_output1$n1$m_CaCO3.mol.kgw.[1]
+
+      #final carbonate species concentrations
+      mHCO3_f <- phreeqc_output2$n1$m_HCO3..mol.kgw.[2] + phreeqc_output2$n1$m_MgHCO3..mol.kgw.[2] + phreeqc_output2$n1$m_NaHCO3.mol.kgw.[2] + phreeqc_output2$n1$m_KHCO3.mol.kgw.[2] + phreeqc_output2$n1$m_CaHCO3..mol.kgw.[2]
+      mCO2aq_f <- phreeqc_output2$n1$m_CO2.mol.kgw.[2]
+      mCO3_f <- phreeqc_output2$n1$m_CO3.2.mol.kgw.[2] + phreeqc_output2$n1$m_MgCO3.mol.kgw.[2] + phreeqc_output2$n1$m_CaCO3.mol.kgw.[2]
+
+      #initial d13C speciation
+      d13C_HCO3_i <- d13C_DIC_i - (eps_db*mCO2aq_i + eps_cb*mCO3_i)/(DIC_i*10^-3)
+      d13C_CO2aq_i <- d13C_HCO3_i + eps_db
+      d13C_CO3_i <- d13C_HCO3_i + eps_cb
+
+
+      if (Fgas > 0) { #CO2 degassing
+        if (d13C_mode == "equilibrium") {
+          if (Fcarb_mol_kg <= 0 || CaCO3_precip == "no") {
+            d13C_HCO3_f <- (d13C_HCO3_i*mHCO3_i*water_initial_mass - (d13C_HCO3_i + eps_gb)*Fgas)/(mHCO3_f*water_final_mass)
+          } else if (Fcarb_mol_kg > 0 && CaCO3_precip =="yes") {
+            d13C_HCO3_f <- (d13C_HCO3_i*mHCO3_i*water_initial_mass - (d13C_HCO3_i + eps_gb)*Fgas - (d13C_HCO3_i + eps_CaCO3_bicarb)*Fcarb_mol_kg*water_initial_mass)/(mHCO3_f*water_final_mass)
+          }
+          d13C_CO2aq_f <- d13C_HCO3_f + eps_db
+          d13C_CO3_f <- d13C_HCO3_f + eps_cb
+          d13C_DIC_f <- (d13C_HCO3_f*mHCO3_f + d13C_CO2aq_f*mCO2aq_f + d13C_CO3_f*mCO3_f)/(mHCO3_f + mCO2aq_f + mCO3_f)
+        } else if (d13C_mode == "kinetic") {
+          if (Fcarb_mol_kg <= 0 || CaCO3_precip == "no") {
+            d13C_HCO3_f <- (d13C_HCO3_i*mHCO3_i*water_initial_mass - (d13C_HCO3_i + eps_degas_kin)*Fgas)/(mHCO3_f*water_final_mass)
+          } else if (Fcarb_mol_kg > 0 && CaCO3_precip =="yes") {
+            d13C_HCO3_f <- (d13C_HCO3_i*mHCO3_i*water_initial_mass - (d13C_HCO3_i + eps_degas_kin)*Fgas - (d13C_HCO3_i + eps_CaCO3_bicarb)*Fcarb_mol_kg*water_initial_mass)/(mHCO3_f*water_final_mass)
+          }
+          d13C_CO2aq_f <- d13C_HCO3_f + eps_db
+          d13C_CO3_f <- d13C_HCO3_f + eps_cb
+          d13C_DIC_f <- (d13C_HCO3_f*mHCO3_f + d13C_CO2aq_f*mCO2aq_f + d13C_CO3_f*mCO3_f)/(mHCO3_f + mCO2aq_f + mCO3_f)
+        }
+
+      } else if (Fgas <= 0) { #CO2 invasion
+        if (d13C_mode == "equilibrium") {
+          if (Fcarb_mol_kg <= 0 || CaCO3_precip == "no") {
+            d13C_HCO3_f <- (d13C_HCO3_i*mHCO3_i*water_initial_mass + (d13C_CO2g + eps_bg)*(-Fgas))/(mHCO3_f*water_final_mass)
+          } else if (Fcarb_mol_kg > 0 && CaCO3_precip =="yes") {
+            d13C_HCO3_f <- (d13C_HCO3_i*mHCO3_i*water_initial_mass + (d13C_CO2g + eps_bg)*(-Fgas) - (d13C_HCO3_i + eps_CaCO3_bicarb)*Fcarb_mol_kg*water_initial_mass)/(mHCO3_f*water_final_mass)
+          }
+          d13C_CO2aq_f <- d13C_HCO3_f + eps_db
+          d13C_CO3_f <- d13C_HCO3_f + eps_cb
+          d13C_DIC_f <- (d13C_HCO3_f*mHCO3_f + d13C_CO2aq_f*mCO2aq_f + d13C_CO3_f*mCO3_f)/(mHCO3_f + mCO2aq_f + mCO3_f)
+        } else if (d13C_mode == "kinetic") {
+          if (Fcarb_mol_kg <= 0 || CaCO3_precip == "no") {
+            d13C_added <- d13C_CO2g + eps_invasion_kin
+            d13C_DIC_f <- (d13C_DIC_i*DIC_i*10^-3*water_initial_mass + d13C_added*(-Fgas))/(output$DIC_mmol_kg*10^-3*water_final_mass)
+          } else if (Fcarb_mol_kg > 0 && CaCO3_precip =="yes") {
+            d13C_added <- d13C_CO2g + eps_invasion_kin
+            d13C_DIC_f <- (d13C_DIC_i*DIC_i*10^-3*water_initial_mass + d13C_added*(-Fgas) - (d13C_HCO3_i + eps_CaCO3_bicarb)*Fcarb_mol_kg*water_initial_mass)/(output$DIC_mmol_kg*10^-3*water_final_mass)
+          }
+          d13C_HCO3_f <- d13C_DIC_f - (eps_db*mCO2aq_f + eps_cb*mCO3_f)/(output$DIC_mmol_kg*10^-3)
+          d13C_CO2aq_f <- d13C_HCO3_f + eps_db
+          d13C_CO3_f <- d13C_HCO3_f + eps_cb
+        }
       }
+      output$mCO2aq <- mCO2aq_f
+      output$mHCO3 <- mHCO3_f
+      output$mCO3 <- mCO3_f
+
+      output$d13C_DIC <- d13C_DIC_f
+      output$d13C_HCO3 <- d13C_HCO3_f
+      output$d13C_CO3 <- d13C_CO3_f
+      output$d13C_CO2aq <- d13C_CO2aq_f
+
     }
   }
 

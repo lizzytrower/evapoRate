@@ -29,11 +29,12 @@ evapoRate(
   alpha_exchange = 1,
   u_wind = 0,
   d13C_tracking = "no",
-  d13C_DIC_i_invasion = 0,
-  d13C_DIC_i_Rayleigh = 0,
-  eps_g_DIC = 0,
-  alpha_DIC_g = 1,
-  f_remaining = 1,
+  d13C_mode = "equilibrium",
+  d13C_DIC_i,
+  d13C_CO2g = -8.5,
+  eps_degas_kin = -29.5,
+  eps_invasion_kin = -13,
+  eps_CaCO3_bicarb = 2.7,
   CaCO3_precip = "no",
   Fcarb_mol_kg = 0,
   Alk_Ca_carb = 2,
@@ -107,11 +108,19 @@ evapoRate(
 
 \item{u_wind}{wind velocity in m/s; required for "wind" gas exchange mode bu unused for other gas exchange modes}
 
-\item{eps_g_DIC}{carbon isotope fractionation (permil) associated with CO\if{html}{\out{<sub>}}2\if{html}{\out{</sub>}} invasion}
+\item{d13C_tracking}{one of two possible strings determining whether to track carbon isotopes; default is "no" (\eqn{\delta}\if{html}{\out{<sup>}}13\if{html}{\out{</sup>}}C tracking is off); the other option is "yes" (\eqn{\delta}\if{html}{\out{<sup>}}13\if{html}{\out{</sup>}}C tracking is on). \eqn{\delta}\if{html}{\out{<sup>}}13\if{html}{\out{</sup>}}C tracking is only available when gas exchange is turned on.}
 
-\item{alpha_DIC_g}{Rayleigh carbon isotope fractionation factor associated with CO\if{html}{\out{<sub>}}2</sub degassing >}
+\item{d13C_mode}{one of two possible strings ("equilibrium" or "kinetic") that sets the type of fractionation parameterization used; only used if d13C_tracking is set to "yes"}
 
-\item{f_remaining}{fraction of solution remaining - value between 1 and 0, needed for predicted carbon isotope evolution during CO\if{html}{\out{<sub>}}2\if{html}{\out{</sub>}} degassing}
+\item{d13C_DIC_i}{initial \eqn{\delta}\if{html}{\out{<sup>}}13\if{html}{\out{</sup>}}C\if{html}{\out{<sub>}}DIC\if{html}{\out{</sub>}} value (should be set to value from previous timestep)}
+
+\item{d13C_CO2g}{\eqn{\delta}\if{html}{\out{<sup>}}13\if{html}{\out{</sup>}}C value for atmospheric CO\if{html}{\out{<sub>}}2\if{html}{\out{</sub>}}}
+
+\item{eps_degas_kin}{isotopic fractionation (\eqn{\epsilon}) between bicarbonate and CO\if{html}{\out{<sub>}}2\if{html}{\out{</sub>}} associated with CO\if{html}{\out{<sub>}}2\if{html}{\out{</sub>}} dehydration/dehydroxylation during degassing; this parameter is only used if \eqn{\delta}\if{html}{\out{<sup>}}13\if{html}{\out{</sup>}}C fractionation mode is set to "kinetic"}
+
+\item{eps_invasion_kin}{isotopic fractionation (\eqn{\epsilon}) between CO\if{html}{\out{<sub>}}2\if{html}{\out{</sub>}} and bicarbonate associated with CO\if{html}{\out{<sub>}}2\if{html}{\out{</sub>}} hydration/hydroxylation during CO\if{html}{\out{<sub>}}2\if{html}{\out{</sub>}} invasion; this parameter is only used if \eqn{\delta}\if{html}{\out{<sup>}}13\if{html}{\out{</sup>}}C fractionation mode is set to "kinetic"}
+
+\item{eps_CaCO3_bicarb}{isotopic fractionation (\eqn{\epsilon}) between bicarbonate and CaCO\if{html}{\out{<sub>}}3\if{html}{\out{</sub>}} mineral (e.g., aragonite or calcite) associated with mineral precipitation; this parameter is only used if CaCO\if{html}{\out{<sub>}}3\if{html}{\out{</sub>}} precipitation is turned on}
 
 \item{CaCO3_precip}{one of two possible strings determining whether to include CaCO\if{html}{\out{<sub>}}3\if{html}{\out{</sub>}} precipitation; default is "no" (no CaCO\if{html}{\out{<sub>}}3\if{html}{\out{</sub>}} precipitation); "yes" turns on CaCO\if{html}{\out{<sub>}}3\if{html}{\out{</sub>}} precipitation}
 
@@ -158,12 +167,6 @@ evapoRate(
 \item{K_Cl}{ratio of potassium consumed per mole of chloride mineral precipitated; default is 1}
 
 \item{Cl_Cl}{rato of chloride consumed per mole of chloride mineral precipitated; default is 1}
-
-\item{d13_C_tracking}{one of two possible strings determining whether to track carbon isotopes; default is "no" (\eqn{\delta}\if{html}{\out{<sup>}}13\if{html}{\out{</sup>}}C tracking is off); the other option is "yes" (\eqn{\delta}\if{html}{\out{<sup>}}13\if{html}{\out{</sup>}}C tracking is on). \eqn{\delta}\if{html}{\out{<sup>}}13\if{html}{\out{</sup>}}C tracking is only available when gas exchange is turned on.}
-
-\item{d13C_i_invasion}{initial \eqn{\delta}\if{html}{\out{<sup>}}13\if{html}{\out{</sup>}}C\if{html}{\out{<sub>}}DIC\if{html}{\out{</sub>}} value for gas invasion (value from previous timestep)}
-
-\item{d13C_i_Rayleigh}{initial \eqn{\delta}\if{html}{\out{<sup>}}13\if{html}{\out{</sup>}}C\if{html}{\out{<sub>}}DIC\if{html}{\out{</sub>}} value for degassing (value when degassing starts)}
 }
 \value{
 output dataframe that includes major ion concentrations, saturation states for a number of relevant minerals, and the calculated gas flux
